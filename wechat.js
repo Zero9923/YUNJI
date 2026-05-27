@@ -1,18 +1,25 @@
-// wechat.js - 允纯机社交内核：极简扁平 / 面具管理 / 功能全保留版
+// wechat.js - 允纯机社交内核：修复面具保存逻辑 / 深度数据兼容
 
 const WeChatApp = {
-    // 1. 初始化数据
-    data: JSON.parse(localStorage.getItem('wechat_data')) || {
-        avatar: null,
-        id: '用户',
-        bio: '一厢情愿、心甘情愿',
-        currentTab: 'me',
-        masks: [] // 存储面具：{id, name, avatar, bio}
+    // 1. 健壮的初始化：防止旧数据导致 push 失败
+    initData() {
+        const defaults = {
+            avatar: null,
+            id: '用户',
+            bio: '一厢情愿、心甘情愿',
+            currentTab: 'me',
+            masks: [] // 确保列表一定存在
+        };
+        const saved = JSON.parse(localStorage.getItem('wechat_data')) || {};
+        // 核心修复：用新默认值补全旧数据
+        this.data = { ...defaults, ...saved };
+        if (!Array.isArray(this.data.masks)) this.data.masks = [];
     },
 
     tempMaskAvatar: null,
 
     render() {
+        this.initData();
         const style = `
             <style>
                 #wechat-app {
@@ -20,11 +27,9 @@ const WeChatApp = {
                     background: #F9F9F9; z-index: 9999; display: none; flex-direction: column;
                     font-family: -apple-system, sans-serif;
                 }
-
-                /* 内容区 */
                 .wc-content { flex: 1; overflow-y: auto; position: relative; padding: 20px; }
 
-                /* --- 子页面：面具列表 --- */
+                /* --- 面具子页 --- */
                 #wc-sub-page {
                     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
                     background: #F9F9F9; z-index: 10001; display: none; flex-direction: column;
@@ -34,7 +39,7 @@ const WeChatApp = {
                     background: #FFF; border-bottom: 1px solid #F2F2F2;
                 }
                 .sub-header .btn { width: 28px; height: 28px; fill: #666; cursor: pointer; }
-                .sub-header .title { font-size: 16px; font-weight: 500; letter-spacing: 1px; color: #333; }
+                .sub-header .title { font-size: 16px; font-weight: 500; color: #333; }
 
                 .mask-list { padding: 15px; flex: 1; overflow-y: auto; }
                 .mask-item {
@@ -45,9 +50,9 @@ const WeChatApp = {
                 .mask-item-avatar { width: 45px; height: 45px; border-radius: 50%; background: #EEE; background-size: cover; background-position: center; flex-shrink: 0; }
                 .mask-item-info { flex: 1; }
                 .mask-item-name { font-size: 15px; color: #333; }
-                .mask-item-del { color: #CCC; font-size: 20px; padding: 5px; cursor: pointer; font-family: sans-serif; }
+                .mask-item-del { color: #CCC; font-size: 20px; padding: 5px; cursor: pointer; }
 
-                /* --- 弹窗：新建面具 --- */
+                /* --- 弹窗 --- */
                 .wc-modal-mask {
                     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
                     background: rgba(0,0,0,0.3); z-index: 10002;
@@ -58,7 +63,7 @@ const WeChatApp = {
                     display: flex; flex-direction: column; align-items: center;
                     animation: modalPop 0.3s cubic-bezier(0.15, 1, 0.3, 1);
                 }
-                @keyframes modalPop { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+                @keyframes modalPop { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
                 
                 .modal-avatar-up {
                     width: 80px; height: 80px; border-radius: 50%; background: #F5F5F5;
@@ -76,12 +81,11 @@ const WeChatApp = {
                 .m-btn.cancel { background: #F5F5F5; color: #999; }
                 .m-btn.confirm { background: #333; color: #FFF; }
 
-                /* --- 个人页样式 --- */
+                /* --- 个人主页 --- */
                 .wc-me-card { background: #FFF; border-radius: 20px; padding: 25px; display: flex; align-items: flex-start; gap: 20px; border: 1px solid #F0F0F0; margin-top: 40px; }
                 .wc-avatar { width: 70px; height: 70px; border-radius: 50%; background: #F0F2F5; background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-                .wc-avatar svg { width: 40px; fill: #CCC; }
-                .wc-info { flex: 1; display: flex; flex-direction: column; gap: 5px; }
-                .wc-id { font-size: 18px; font-weight: 500; cursor: pointer; color: #1a1a1a; }
+                .wc-avatar svg { width: 35px; fill: #CCC; }
+                .wc-id { font-size: 18px; font-weight: 500; cursor: pointer; color: #1a1a1a; margin-bottom: 5px; }
                 .wc-bio { font-size: 13px; color: #999; line-height: 1.5; cursor: pointer; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
                 
                 .wc-list { margin-top: 25px; display: flex; flex-direction: column; gap: 10px; }
@@ -89,7 +93,7 @@ const WeChatApp = {
                 .wc-list-icon { width: 22px; height: 22px; fill: #BBB; }
                 .wc-list-text { font-size: 14px; color: #555; }
 
-                /* 底部栏 */
+                /* 底部 Tab */
                 .wc-tabbar { height: 85px; background: rgba(255,255,255,0.9); backdrop-filter: blur(20px); border-top: 1px solid #F0F0F0; display: flex; justify-content: space-around; align-items: center; padding-bottom: env(safe-area-inset-bottom); }
                 .wc-tab { display: flex; flex-direction: column; align-items: center; gap: 5px; color: #BBB; cursor: pointer; }
                 .wc-tab.active { color: #333; }
@@ -102,15 +106,13 @@ const WeChatApp = {
             <div id="wechat-app">
                 <div class="wc-content" id="wc-main-view"></div>
 
-                <!-- 底部 Tab 栏 -->
                 <div class="wc-tabbar">
-                    <div class="wc-tab" onclick="WeChatApp.switchTab('chat')"><svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg><span>聊天</span></div>
-                    <div class="wc-tab" onclick="WeChatApp.switchTab('contacts')"><svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5s-3 1.34-3 3 1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg><span>通讯录</span></div>
-                    <div class="wc-tab" onclick="WeChatApp.switchTab('discovery')"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5.88 15.88L7.06 14.88l3.06-1082 10.82 3.06-3.06 10.76z"/></svg><span>发现</span></div>
+                    <div class="wc-tab" onclick="WeChatApp.switchTab('chat')"><svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12l4 4V4c0-1.1-.9-2-2-2z"/></svg><span>聊天</span></div>
+                    <div class="wc-tab" onclick="WeChatApp.switchTab('contacts')"><svg viewBox="0 0 24 24"><path d="M9 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4zm11-4V7h-2v3h-3v2h3v3h2v-3h3v-2h-3z"/></svg><span>通讯录</span></div>
+                    <div class="wc-tab" onclick="WeChatApp.switchTab('discovery')"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4.59 16.42L10 10.74l3.17-6.84L14 14.41l-3.17 6.83h.58zM12 13.1c-.61 0-1.1-.49-1.1-1.1s.49-1.1 1.1-1.1 1.1.49 1.1 1.1-.49 1.1-1.1 1.1z"/></svg><span>发现</span></div>
                     <div class="wc-tab" onclick="WeChatApp.switchTab('me')"><svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg><span>个人</span></div>
                 </div>
 
-                <!-- 子页面：我的面具 -->
                 <div id="wc-sub-page">
                     <div class="sub-header">
                         <svg class="btn" onclick="WeChatApp.closeSubPage()" viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
@@ -120,7 +122,6 @@ const WeChatApp = {
                     <div class="mask-list" id="mask-list-view"></div>
                 </div>
 
-                <!-- 创建面具弹窗 -->
                 <div class="wc-modal-mask" id="mask-modal">
                     <div class="wc-modal">
                         <div class="modal-avatar-up" id="modal-avatar-btn" onclick="document.getElementById('modal-picker').click()">
@@ -163,7 +164,7 @@ const WeChatApp = {
         } else if (tab === 'contacts') {
             view.innerHTML = this.renderContactsPage();
         } else {
-            view.innerHTML = `<div style="padding:100px 0; text-align:center; color:#CCC; font-weight:300;">Coming Soon</div>`;
+            view.innerHTML = `<div style="padding:100px 0; text-align:center; color:#CCC; font-size:12px; letter-spacing:1px;">COMING SOON</div>`;
         }
     },
 
@@ -193,13 +194,18 @@ const WeChatApp = {
 
     renderContactsPage() {
         return `
-            <div style="padding:40px 0 20px; font-size: 22px; font-weight: 300;">CONTACTS</div>
-            <div style="display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid #F0F0F0;"><div style="width:40px; height:40px; border-radius:10px; background:#D1C1B7"></div><div style="font-size:15px;">允纯助手</div></div>
-            <div style="display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid #F0F0F0;"><div style="width:40px; height:40px; border-radius:10px; background:#B7C1D1"></div><div style="font-size:15px;">文件传输助手</div></div>
+            <div style="padding:40px 0 20px; font-size: 22px; font-weight: 300; letter-spacing:1px; color:#1a1a1a;">CONTACTS</div>
+            <div style="display:flex; align-items:center; gap:12px; padding:15px 0; border-bottom:1px solid #F2F2F2;">
+                <div style="width:42px; height:42px; border-radius:12px; background:#D1C1B7; display:flex; align-items:center; justify-content:center; color:#FFF; font-size:12px;">助理</div>
+                <div style="font-size:15px; color:#444;">允纯助手</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:12px; padding:15px 0; border-bottom:1px solid #F2F2F2;">
+                <div style="width:42px; height:42px; border-radius:12px; background:#B7C1D1; display:flex; align-items:center; justify-content:center; color:#FFF; font-size:12px;">文件</div>
+                <div style="font-size:15px; color:#444;">文件传输助手</div>
+            </div>
         `;
     },
 
-    // --- 面具子页逻辑 ---
     openMaskPage() {
         document.getElementById('wc-sub-page').style.display = 'flex';
         this.renderMaskList();
@@ -215,7 +221,7 @@ const WeChatApp = {
             row.innerHTML = `
                 <div class="mask-item-avatar" style="background-image:url(${m.avatar})"></div>
                 <div class="mask-item-info"><div class="mask-item-name">${m.name}</div></div>
-                <div class="mask-item-del" onclick="WeChatApp.deleteMask(${index})">×</div>
+                <div class="mask-item-del" onclick="WeChatApp.deleteMask(${index}, event)">×</div>
             `;
             listView.appendChild(row);
         });
@@ -230,19 +236,26 @@ const WeChatApp = {
         document.getElementById('m-name').value = ''; document.getElementById('m-bio').value = '';
     },
 
+    // 🚀 核心修复：确保数据保存和渲染流程完整
     addMask() {
         const name = document.getElementById('m-name').value;
         const bio = document.getElementById('m-bio').value;
         if(!name) return alert('请输入名字');
+        
+        // 再次确认 masks 数组存在
+        if(!this.data.masks) this.data.masks = [];
+        
         this.data.masks.push({ id: Date.now(), name, bio, avatar: this.tempMaskAvatar || '' });
-        this.save(); this.renderMaskList(); this.hideModal();
+        this.save();
+        this.renderMaskList();
+        this.hideModal();
     },
 
-    deleteMask(index) {
+    deleteMask(index, e) {
+        e.stopPropagation();
         if(confirm('删除面具？')) { this.data.masks.splice(index, 1); this.save(); this.renderMaskList(); }
     },
 
-    // --- 通用 ---
     bindMeEvents() {
         const avatarBtn = document.getElementById('wc-avatar-btn');
         let timer = null;
