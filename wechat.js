@@ -1,19 +1,21 @@
-// wechat.js - 允纯机社交内核：终极修复版（完美解决PNG中文乱码 + 稳定UI）
+// wechat.js - 允纯机社交内核：支持聊天列表跳转 + 消息预览版
 
 const WeChatApp = {
     db: null,
     data: {
         avatarId: null, id: '用户', bio: '一厢情愿、心甘情愿',
-        currentTab: 'me',
+        currentTab: 'chat', 
         masks: [],    
         contacts: [], 
-        collapsedGroups: []
+        collapsedGroups: [],
+        activeChats: [],
+        messages: {} // 新增：用于存储每个角色的聊天记录 { contactId: [ {role, content, timestamp}, ... ] }
     },
 
     tempFile: null,
     editingId: null, 
     editingMaskId: null,
-    activeContactId: null,
+    contextTarget: null, 
     searchQuery: '',
 
     async initDB() {
@@ -45,6 +47,8 @@ const WeChatApp = {
         this.data = { ...this.data, ...saved };
         if(!Array.isArray(this.data.masks)) this.data.masks = [];
         if(!Array.isArray(this.data.contacts)) this.data.contacts = [];
+        if(!Array.isArray(this.data.activeChats)) this.data.activeChats = [];
+        if(!this.data.messages) this.data.messages = {};
     },
 
     async render() {
@@ -57,14 +61,12 @@ const WeChatApp = {
                 .wc-header .title, .sub-header .title { font-size: 16px; font-weight: 500; color: #333; flex: 1; text-align: center; letter-spacing: 1px; }
                 .wc-content { flex: 1; overflow-y: auto; position: relative; }
 
-                /* 顶部菜单 */
                 .wc-plus-menu { position: fixed; top: 90px; right: 15px; background: #4C4C4C; border-radius: 12px; display: none; flex-direction: column; z-index: 10006; min-width: 150px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
                 .wc-plus-menu::after { content: ""; position: absolute; top: -8px; right: 12px; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 8px solid #4C4C4C; }
                 .wc-plus-item { color: #FFF; padding: 14px 18px; font-size: 15px; display: flex; align-items: center; gap: 12px; border-bottom: 0.5px solid #5a5a5a; cursor: pointer; }
                 .wc-plus-item:last-child { border-bottom: none; }
                 .wc-plus-item svg { width: 20px; height: 20px; fill: #FFF; }
 
-                /* 列表通用 */
                 .wc-me-card { background: #FFF; border-radius: 20px; padding: 25px; display: flex; align-items: flex-start; gap: 20px; border: 1px solid #F0F0F0; margin: 20px; }
                 .wc-avatar { width: 70px; height: 70px; border-radius: 50%; background: #F0F2F5; background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden; }
                 .wc-id { font-size: 18px; font-weight: 500; color: #1a1a1a; margin-bottom: 5px; cursor: pointer; }
@@ -81,14 +83,18 @@ const WeChatApp = {
                 .wc-contact-item { background: #FFF; padding: 12px 20px; display: flex; align-items: center; gap: 15px; border-bottom: 1px solid #F9F9F9; }
                 .wc-c-avatar { width: 44px; height: 44px; border-radius: 12px; background: #F0F0F0; background-size: cover; background-position: center; flex-shrink: 0; }
 
-                /* 底部 Tab */
+                .wc-chat-item { display: flex; align-items: center; padding: 15px 20px; background: #FFF; border-bottom: 1px solid #F9F9F9; cursor: pointer; }
+                .wc-chat-avatar { width: 50px; height: 50px; border-radius: 12px; background: #F0F0F0; background-size: cover; background-position: center; flex-shrink: 0; }
+                .wc-chat-info { flex: 1; margin-left: 15px; overflow: hidden; }
+                .wc-chat-name { font-size: 16px; color: #333; font-weight: 500; margin-bottom: 5px; }
+                .wc-chat-msg { font-size: 13px; color: #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
                 .wc-tabbar { height: 85px; background: rgba(255,255,255,0.9); backdrop-filter: blur(20px); border-top: 1px solid #F0F0F0; display: flex; justify-content: space-around; align-items: center; padding-bottom: env(safe-area-inset-bottom); }
                 .wc-tab { display: flex; flex-direction: column; align-items: center; gap: 6px; color: #BBB; cursor: pointer; }
                 .wc-tab.active { color: #1a1a1a; }
                 .wc-tab svg { width: 24px; height: 24px; fill: currentColor; }
                 .wc-tab span { font-size: 10px; }
 
-                /* 弹窗核心 */
                 .wc-modal-mask { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10002; display: none; align-items: center; justify-content: center; }
                 .wc-modal { background: #FFF; width: 90%; max-height: 85vh; border-radius: 28px; padding: 25px; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
                 .modal-scroll { flex: 1; overflow-y: auto; }
@@ -99,6 +105,10 @@ const WeChatApp = {
                 .modal-btns { display: flex; gap: 10px; margin-top: 20px; }
                 .m-btn { flex: 1; padding: 15px; text-align: center; border-radius: 15px; font-size: 15px; font-weight: 500; cursor: pointer; }
                 
+                .picker-item { display: flex; align-items: center; padding: 12px 20px; background: #FFF; border-bottom: 1px solid #F9F9F9; cursor: pointer; }
+                .picker-avatar { width: 40px; height: 40px; border-radius: 10px; background: #EEE; background-size: cover; background-position: center; flex-shrink: 0; }
+                .picker-name { margin-left: 15px; font-size: 15px; color: #333; }
+
                 #wc-sub-page { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #F9F9F9; z-index: 10001; display: none; flex-direction: column; }
                 .mask-list { flex: 1; overflow-y: auto; padding: 20px; }
                 .mask-item { background: #FFF; padding: 15px; border-radius: 15px; display: flex; align-items: center; gap: 15px; margin-bottom: 10px; border: 1px solid #F2F2F2; }
@@ -114,7 +124,7 @@ const WeChatApp = {
         const html = `
             <div id="wc-busy" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.9);z-index:10008;display:none;align-items:center;justify-content:center;flex-direction:column;gap:15px;">
                 <div style="width:35px;height:35px;border:3px solid #F3F3F3;border-top:3px solid #1a1a1a;border-radius:50%;animation:wc-spin 1s linear infinite;"></div>
-                <div style="font-size:14px;color:#1a1a1a">正在解析角色卡...</div>
+                <div style="font-size:14px;color:#1a1a1a">处理中...</div>
             </div>
             <style>@keyframes wc-spin { to { transform: rotate(360deg); } }</style>
             
@@ -125,16 +135,7 @@ const WeChatApp = {
                     <svg class="btn" id="wc-add-btn" onclick="WeChatApp.togglePlusMenu(event)" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
                 </div>
 
-                <div id="wc-plus-menu" class="wc-plus-menu">
-                    <div class="wc-plus-item" onclick="WeChatApp.menuAddContact()">
-                        <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-                        <span>添加角色</span>
-                    </div>
-                    <div class="wc-plus-item" onclick="document.getElementById('import-picker').click()">
-                        <svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
-                        <span>导入角色卡</span>
-                    </div>
-                </div>
+                <div id="wc-plus-menu" class="wc-plus-menu"></div>
 
                 <div class="wc-content" id="wc-main-view"></div>
                 <div class="wc-tabbar">
@@ -144,7 +145,14 @@ const WeChatApp = {
                     <div class="wc-tab" onclick="WeChatApp.switchTab('me')"><svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg><span>个人</span></div>
                 </div>
 
-                <!-- 角色弹窗 -->
+                <div class="wc-modal-mask" id="chat-picker-modal">
+                    <div class="wc-modal" style="padding:0; overflow:hidden; display:flex; flex-direction:column; max-height:70vh; width:85%;">
+                        <div style="padding:20px; text-align:center; font-size:16px; font-weight:500; border-bottom:1px solid #F0F0F0;">发起聊天</div>
+                        <div class="modal-scroll" id="chat-picker-list" style="padding:10px 0; background:#F9F9F9;"></div>
+                        <div style="padding:16px; text-align:center; color:#666; border-top:1px solid #F0F0F0; font-size:15px; cursor:pointer;" onclick="document.getElementById('chat-picker-modal').style.display='none'">取消</div>
+                    </div>
+                </div>
+
                 <div class="wc-modal-mask" id="contact-modal">
                     <div class="wc-modal">
                         <div class="modal-scroll">
@@ -185,7 +193,10 @@ const WeChatApp = {
                     </div>
                 </div>
 
-                <div id="wc-context-menu"><div class="context-item" onclick="WeChatApp.editActiveContact()">编辑</div><div class="context-item" style="color:red" onclick="WeChatApp.deleteActiveContact()">删除</div></div>
+                <div id="wc-context-menu">
+                    <div class="context-item" id="ctx-edit" onclick="WeChatApp.handleCtxEdit()">编辑</div>
+                    <div class="context-item" style="color:red" onclick="WeChatApp.handleCtxDelete()">删除</div>
+                </div>
             </div>
             <input type="file" id="u-picker" style="display:none" accept="image/*">
             <input type="file" id="c-picker" style="display:none" accept="image/*">
@@ -201,17 +212,158 @@ const WeChatApp = {
         document.getElementById('import-picker').onchange = e => this.handleImport(e);
     },
 
-    // --- 核心修复：完美的 PNG 中文解析 ---
     togglePlusMenu(e) {
         e.stopPropagation();
         const menu = document.getElementById('wc-plus-menu');
+        if (this.data.currentTab === 'chat') {
+            menu.innerHTML = `
+                <div class="wc-plus-item" onclick="WeChatApp.showChatPicker()">
+                    <svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12l4 4V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>
+                    <span>发起聊天</span>
+                </div>
+                <div class="wc-plus-item" onclick="alert('群聊功能开发中')">
+                    <svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5s-3 1.34-3 3 1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+                    <span>创建群聊</span>
+                </div>
+            `;
+        } else {
+            menu.innerHTML = `
+                <div class="wc-plus-item" onclick="WeChatApp.menuAddContact()">
+                    <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                    <span>添加角色</span>
+                </div>
+                <div class="wc-plus-item" onclick="document.getElementById('import-picker').click()">
+                    <svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
+                    <span>导入角色卡</span>
+                </div>
+            `;
+        }
         menu.style.display = (menu.style.display === 'flex') ? 'none' : 'flex';
         if (menu.style.display === 'flex') {
             const h = () => { menu.style.display='none'; document.removeEventListener('click',h); };
             setTimeout(()=>document.addEventListener('click', h), 10);
         }
     },
+
     menuAddContact() { document.getElementById('wc-plus-menu').style.display='none'; this.showContactModal(); },
+
+    showChatPicker() {
+        document.getElementById('wc-plus-menu').style.display = 'none';
+        const list = document.getElementById('chat-picker-list');
+        const availableContacts = this.data.contacts.filter(c => !this.data.activeChats.includes(c.id));
+        if (availableContacts.length === 0) {
+            list.innerHTML = `<div style="padding:40px 20px; text-align:center; color:#CCC; font-size:14px;">没有可添加的好友了</div>`;
+        } else {
+            list.innerHTML = '';
+            for (let c of availableContacts) {
+                const row = document.createElement('div');
+                row.className = 'picker-item';
+                row.onclick = () => this.addChat(c.id);
+                row.innerHTML = `<div class="picker-avatar" id="picker-av-${c.id}"></div><div class="picker-name">${c.name}</div>`;
+                list.appendChild(row);
+                this.getBlob(c.avatarId).then(b => { 
+                    const el = document.getElementById(`picker-av-${c.id}`); 
+                    if(b && el) el.style.backgroundImage = `url(${URL.createObjectURL(b)})`; 
+                });
+            }
+        }
+        document.getElementById('chat-picker-modal').style.display = 'flex';
+    },
+
+    addChat(id) {
+        this.data.activeChats.push(id);
+        this.save();
+        document.getElementById('chat-picker-modal').style.display = 'none';
+        this.switchTab('chat');
+    },
+
+    async switchTab(tab) {
+        this.data.currentTab = tab; 
+        const view = document.getElementById('wc-main-view'); 
+        const title = document.getElementById('wc-header-title'); 
+        const addBtn = document.getElementById('wc-add-btn');
+        addBtn.style.visibility = (tab === 'contacts' || tab === 'chat') ? 'visible' : 'hidden';
+        title.innerText = {chat:'聊天', contacts:'通讯录', discovery:'发现', me:'个人'}[tab];
+        document.querySelectorAll('.wc-tab').forEach((t, i) => t.classList.toggle('active', ['chat','contacts','discovery','me'][i] === tab));
+        
+        if (tab === 'me') { const blob = await this.getBlob(this.data.avatarId); view.innerHTML = this.renderMePage(blob ? URL.createObjectURL(blob) : null); this.bindMeEvents(); }
+        else if (tab === 'contacts') { view.innerHTML = await this.renderContactsPage(); this.bindSearchEvent(); }
+        else if (tab === 'chat') { view.innerHTML = await this.renderChatPage(); }
+        else { view.innerHTML = `<div style="text-align:center;padding:100px;color:#CCC">开发中</div>`; }
+    },
+
+    async renderChatPage() {
+        if (!this.data.activeChats || this.data.activeChats.length === 0) {
+            return `<div style="text-align:center;padding:120px 20px;color:#CCC;font-size:14px;">暂无聊天，点击右上角 + 发起聊天</div>`;
+        }
+        let h = '';
+        for (let id of this.data.activeChats) {
+            const c = this.data.contacts.find(i => i.id === id);
+            if (!c) continue;
+            
+            // 获取该好友的最后一条消息内容
+            const msgs = this.data.messages[id] || [];
+            const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1].content : '[暂无消息记录]';
+
+            h += `
+                <div class="wc-chat-item" onclick="ChatRoom.open('${c.id}')" ontouchstart="WeChatApp.startChatPress(event, '${c.id}')" ontouchend="WeChatApp.endCPress()">
+                    <div class="wc-chat-avatar" id="chat-av-${c.id}"></div>
+                    <div class="wc-chat-info">
+                        <div class="wc-chat-name">${c.name}</div>
+                        <div class="wc-chat-msg">${lastMsg}</div>
+                    </div>
+                </div>
+            `;
+            this.getBlob(c.avatarId).then(b => { 
+                const el=document.getElementById(`chat-av-${c.id}`); 
+                if(b && el) el.style.backgroundImage = `url(${URL.createObjectURL(b)})`; 
+            });
+        }
+        return h;
+    },
+
+    startCPress(e, id) { 
+        this.contextTarget = { type: 'contact', id }; 
+        this.pressTimer = setTimeout(() => { 
+            const m = document.getElementById('wc-context-menu'); 
+            document.getElementById('ctx-edit').style.display = 'block';
+            const p = e.touches ? e.touches[0] : e; 
+            m.style.display = 'flex'; 
+            m.style.left = Math.min(p.clientX, window.innerWidth-130)+'px'; 
+            m.style.top = p.clientY+'px'; 
+        }, 600); 
+    },
+    startChatPress(e, id) { 
+        this.contextTarget = { type: 'chat', id }; 
+        this.pressTimer = setTimeout(() => { 
+            const m = document.getElementById('wc-context-menu'); 
+            document.getElementById('ctx-edit').style.display = 'none';
+            const p = e.touches ? e.touches[0] : e; 
+            m.style.display = 'flex'; 
+            m.style.left = Math.min(p.clientX, window.innerWidth-130)+'px'; 
+            m.style.top = p.clientY+'px'; 
+        }, 600); 
+    },
+    endCPress() { clearTimeout(this.pressTimer); },
+    handleCtxEdit() {
+        document.getElementById('wc-context-menu').style.display='none';
+        if(this.contextTarget?.type === 'contact') this.showContactModal(this.contextTarget.id);
+    },
+    handleCtxDelete() {
+        document.getElementById('wc-context-menu').style.display='none';
+        if(this.contextTarget?.type === 'contact') {
+            if(confirm('删除好友？')) { 
+                this.data.contacts = this.data.contacts.filter(i=>i.id!==this.contextTarget.id); 
+                this.data.activeChats = this.data.activeChats.filter(id => id !== this.contextTarget.id);
+                this.save(); this.switchTab('contacts'); 
+            }
+        } else if (this.contextTarget?.type === 'chat') {
+            if(confirm('删除此聊天？')) {
+                this.data.activeChats = this.data.activeChats.filter(id => id !== this.contextTarget.id);
+                this.save(); this.switchTab('chat');
+            }
+        }
+    },
 
     async handleImport(e) {
         const file = e.target.files[0];
@@ -226,21 +378,17 @@ const WeChatApp = {
             }
             if (data) await this.saveImportedChar(data, file.type === "image/png" ? file : null);
         } catch (err) {
-            alert("导入失败：无法识别此卡片的数据格式");
-            console.error(err);
+            alert("导入失败：数据格式不正确");
         }
         document.getElementById('wc-busy').style.display = 'none';
         e.target.value = '';
     },
 
-    // 解决乱码的核心：将 Base64 还原为真正的 UTF-8 字符串
-    decodeBase64UTF8(base64Str) {
-        const binaryString = atob(base64Str);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-        }
-        return new TextDecoder('utf-8').decode(bytes);
+    decodeBase64UTF8(s) {
+        const b = atob(s);
+        const u = new Uint8Array(b.length);
+        for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i);
+        return new TextDecoder('utf-8').decode(u);
     },
 
     async extractPngData(file) {
@@ -249,64 +397,30 @@ const WeChatApp = {
             reader.onload = () => {
                 const buffer = new Uint8Array(reader.result);
                 if (buffer[0] !== 0x89 || buffer[1] !== 0x50) return reject("无效PNG");
-                
                 let offset = 8;
                 while (offset < buffer.length) {
                     const len = (buffer[offset] << 24) | (buffer[offset+1] << 16) | (buffer[offset+2] << 8) | buffer[offset+3];
                     const type = String.fromCharCode(buffer[offset+4], buffer[offset+5], buffer[offset+6], buffer[offset+7]);
-                    
                     if (type === 'tEXt' || type === 'iTXt') {
                         const chunk = buffer.slice(offset + 8, offset + 8 + len);
                         const text = new TextDecoder('utf-8').decode(chunk);
-                        
                         if (text.includes('chara')) {
                             const raw = text.substring(text.indexOf('chara') + 5);
-                            
-                            // 寻找 Base64 的开头 (eyJ 是 {" 的 Base64 编码)
                             const b64Idx = raw.indexOf('eyJ');
-                            // 寻找纯 JSON 的开头
                             const jsonIdx = raw.indexOf('{');
-                            
                             try {
                                 if (b64Idx !== -1 && (jsonIdx === -1 || b64Idx < jsonIdx)) {
-                                    // 提取纯净的 Base64 字符串
                                     const b64 = raw.substring(b64Idx).replace(/[^a-zA-Z0-9+/=]/g, '');
-                                    const decodedStr = this.decodeBase64UTF8(b64);
-                                    resolve(JSON.parse(decodedStr));
-                                    return;
+                                    resolve(JSON.parse(this.decodeBase64UTF8(b64))); return;
                                 } else if (jsonIdx !== -1) {
-                                    // 纯 JSON 格式
-                                    const jsonStr = raw.substring(jsonIdx, raw.lastIndexOf('}') + 1);
-                                    resolve(JSON.parse(jsonStr));
-                                    return;
-                                }
-                            } catch(e) {
-                                console.warn("当前数据块解析失败，继续尝试...", e);
-                            }
-                        }
-                    }
-                    offset += len + 12;
-                }
-                
-                // 暴力扫描模式：如果上面的标准解析失败，直接在整个文件里找 Base64 编码的 JSON
-                try {
-                    const fullText = new TextDecoder('utf-8').decode(buffer);
-                    const matches = fullText.match(/eyJ[a-zA-Z0-9+/=]+/g);
-                    if (matches) {
-                        matches.sort((a,b) => b.length - a.length); // 找最长的那个，通常就是数据
-                        for (let b64 of matches) {
-                            try {
-                                const parsed = JSON.parse(this.decodeBase64UTF8(b64));
-                                if (parsed.name || parsed.data) {
-                                    resolve(parsed);
-                                    return;
+                                    resolve(JSON.parse(raw.substring(jsonIdx, raw.lastIndexOf('}') + 1))); return;
                                 }
                             } catch(e) {}
                         }
                     }
-                } catch(e) {}
-
-                reject("未找到角色数据");
+                    offset += len + 12;
+                }
+                reject("未找到数据");
             };
             reader.readAsArrayBuffer(file);
         });
@@ -325,18 +439,11 @@ const WeChatApp = {
         alert(`成功导入: ${name}`);
     },
 
-    // --- 恢复的功能行 ---
     async renderContactsPage() {
         let h = `
             <div class="wc-search-bar"><input type="text" class="wc-search-input" id="c-search" placeholder="搜索好友" value="${this.searchQuery}"></div>
-            <div class="wc-func-row">
-                <div class="wc-func-icon" style="background:#FA9D3B"><svg style="width:22px;fill:#FFF" viewBox="0 0 24 24"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div>
-                <div class="wc-list-text" style="font-size:15px;">新的朋友</div>
-            </div>
-            <div class="wc-func-row">
-                <div class="wc-func-icon" style="background:#07C160"><svg style="width:22px;fill:#FFF" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5s-3 1.34-3 3 1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg></div>
-                <div class="wc-list-text" style="font-size:15px;">群聊</div>
-            </div>
+            <div class="wc-func-row"><div class="wc-func-icon" style="background:#FA9D3B"><svg style="width:22px;fill:#FFF" viewBox="0 0 24 24"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div><div class="wc-list-text" style="font-size:15px;">新的朋友</div></div>
+            <div class="wc-func-row"><div class="wc-func-icon" style="background:#07C160"><svg style="width:22px;fill:#FFF" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5s-3 1.34-3 3 1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg></div><div class="wc-list-text" style="font-size:15px;">群聊</div></div>
         `;
         const f = this.data.contacts.filter(c => c.name.toLowerCase().includes(this.searchQuery.toLowerCase()));
         const groups = {}; f.forEach(c => { const g = c.group || '其他'; if(!groups[g]) groups[g] = []; groups[g].push(c); });
@@ -352,7 +459,11 @@ const WeChatApp = {
         return h;
     },
 
-    // --- 其他渲染逻辑 ---
+    renderMePage(avatarUrl) {
+        const bg = avatarUrl ? `style="background-image:url(${avatarUrl})"` : '';
+        return `<div class="wc-me-card"><div class="wc-avatar" id="wc-avatar-btn" ${bg}>${avatarUrl?'':'<svg viewBox="0 0 24 24" style="width:40px;fill:#CCC"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'}</div><div class="wc-info"><div class="wc-id" onclick="WeChatApp.edit('id')">${this.data.id}</div><div class="wc-bio" onclick="WeChatApp.edit('bio')">${this.data.bio}</div></div></div><div class="wc-list"><div class="wc-list-item" onclick="WeChatApp.openMaskPage()"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M21 5c-1.11 0-2.02.82-2.15 1.88a1.05 1.05 0 0 0-.14-.13C17.39 5.48 15.81 5 14.21 5c-1.6 0-3.18.48-4.51 1.75-.1.1-.19.23-.29.35C9.28 6.04 8.27 5 7 5a3 3 0 0 0-3 3c0 1.66 1.34 3 3 3 .35 0 .67-.06.97-.17.67.64 1.46 1.15 2.34 1.48C9.51 13.06 9 14.44 9 16c0 3.31 2.69 6 6 6s6-2.69 6-6c0-1.56-.51-2.94-1.31-3.69.88-.33 1.67-.84 2.34-1.48.3.11.62.17.97.17 1.66 0 3-1.34 3-3a3 3 0 0 0-3-3z"/></svg><div class="wc-list-text">面具</div></div><div class="wc-list-item"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2 .9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8z"/></svg><div class="wc-list-text">钱包</div></div><div class="wc-list-item"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z"/></svg><div class="wc-list-text">收藏</div></div><div class="wc-list-item"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm0 18c-4.41 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11z"/></svg><div class="wc-list-text">表情</div></div></div>`;
+    },
+
     async renderMaskList() {
         const view = document.getElementById('mask-list-view');
         if(!view) return;
@@ -370,29 +481,10 @@ const WeChatApp = {
         }
     },
 
-    async switchTab(tab) {
-        this.data.currentTab = tab; const view = document.getElementById('wc-main-view'); const title = document.getElementById('wc-header-title'); const addBtn = document.getElementById('wc-add-btn');
-        addBtn.style.visibility = (tab === 'contacts') ? 'visible' : 'hidden';
-        title.innerText = {chat:'聊天', contacts:'通讯录', discovery:'发现', me:'个人'}[tab];
-        document.querySelectorAll('.wc-tab').forEach((t, i) => t.classList.toggle('active', ['chat','contacts','discovery','me'][i] === tab));
-        if (tab === 'me') { const blob = await this.getBlob(this.data.avatarId); view.innerHTML = this.renderMePage(blob ? URL.createObjectURL(blob) : null); this.bindMeEvents(); }
-        else if (tab === 'contacts') { view.innerHTML = await this.renderContactsPage(); this.bindSearchEvent(); }
-        else { view.innerHTML = `<div style="text-align:center;padding:100px;color:#CCC">开发中</div>`; }
-    },
-
-    renderMePage(avatarUrl) {
-        const bg = avatarUrl ? `style="background-image:url(${avatarUrl})"` : '';
-        return `<div class="wc-me-card"><div class="wc-avatar" id="wc-avatar-btn" ${bg}>${avatarUrl?'':'<svg viewBox="0 0 24 24" style="width:40px;fill:#CCC"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'}</div><div class="wc-info"><div class="wc-id" onclick="WeChatApp.edit('id')">${this.data.id}</div><div class="wc-bio" onclick="WeChatApp.edit('bio')">${this.data.bio}</div></div></div><div class="wc-list"><div class="wc-list-item" onclick="WeChatApp.openMaskPage()"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M21 5c-1.11 0-2.02.82-2.15 1.88a1.05 1.05 0 0 0-.14-.13C17.39 5.48 15.81 5 14.21 5c-1.6 0-3.18.48-4.51 1.75-.1.1-.19.23-.29.35C9.28 6.04 8.27 5 7 5a3 3 0 0 0-3 3c0 1.66 1.34 3 3 3 .35 0 .67-.06.97-.17.67.64 1.46 1.15 2.34 1.48C9.51 13.06 9 14.44 9 16c0 3.31 2.69 6 6 6s6-2.69 6-6c0-1.56-.51-2.94-1.31-3.69.88-.33 1.67-.84 2.34-1.48.3.11.62.17.97.17 1.66 0 3-1.34 3-3a3 3 0 0 0-3-3z"/></svg><div class="wc-list-text">面具</div></div><div class="wc-list-item"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2 .9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8z"/></svg><div class="wc-list-text">钱包</div></div><div class="wc-list-item"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z"/></svg><div class="wc-list-text">收藏</div></div><div class="wc-list-item"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm0 18c-4.41 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11z"/></svg><div class="wc-list-text">表情</div></div></div>`;
-    },
-
     bindSearchEvent() { const i = document.getElementById('c-search'); if(i) i.oninput = e => { this.searchQuery = e.target.value; this.switchTab('contacts'); }; },
     showContactModal(id = null) { document.getElementById('contact-modal').style.display='flex'; const s = document.getElementById('c-user-bind'); s.innerHTML = '<option value="">绑定User面具</option>' + this.data.masks.map(m=>`<option value="${m.id}">${m.name}</option>`).join(''); if(id) { const c = this.data.contacts.find(i=>i.id===id); this.editingId = id; document.getElementById('c-name').value = c.name; document.getElementById('c-bio').value = c.bio; document.getElementById('c-group').value = c.group; s.value = c.userId || ''; this.getBlob(c.avatarId).then(b => { if(b) { const btn = document.getElementById('c-avatar-btn'); btn.innerHTML=''; btn.style.backgroundImage=`url(${URL.createObjectURL(b)})`; } }); } },
     hideContactModal() { document.getElementById('contact-modal').style.display='none'; this.editingId=null; this.tempFile=null; document.getElementById('c-avatar-btn').style.backgroundImage='none'; document.getElementById('c-avatar-btn').innerHTML='<svg viewBox="0 0 24 24" style="width:36px;fill:#DDD"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'; ['c-name','c-bio','c-group'].forEach(k=>document.getElementById(k).value=''); },
     async saveContact() { const name = document.getElementById('c-name').value; if(!name) return; const aid = this.tempFile ? 'c_a_'+Date.now() : (this.editingId?this.data.contacts.find(i=>i.id===this.editingId).avatarId:null); if(this.tempFile) await this.saveBlob(aid, this.tempFile); const p = { id: this.editingId||'c_'+Date.now(), name, bio: document.getElementById('c-bio').value, group: document.getElementById('c-group').value||'其他', userId: document.getElementById('c-user-bind').value, avatarId: aid }; if(this.editingId) this.data.contacts = this.data.contacts.map(i=>i.id===this.editingId?p:i); else this.data.contacts.push(p); this.save(); await this.switchTab('contacts'); this.hideContactModal(); },
-    startCPress(e, id) { this.activeContactId = id; this.pressTimer = setTimeout(() => { const m = document.getElementById('wc-context-menu'); const p = e.touches ? e.touches[0] : e; m.style.display = 'flex'; m.style.left = Math.min(p.clientX, window.innerWidth-130)+'px'; m.style.top = p.clientY+'px'; }, 600); },
-    endCPress() { clearTimeout(this.pressTimer); },
-    editActiveContact() { document.getElementById('wc-context-menu').style.display='none'; this.showContactModal(this.activeContactId); },
-    deleteActiveContact() { if(confirm('删除好友？')) { this.data.contacts = this.data.contacts.filter(i=>i.id!==this.activeContactId); this.save(); this.switchTab('contacts'); } document.getElementById('wc-context-menu').style.display='none'; },
     handleFile(e, type) { const file = e.target.files[0]; if(!file) return; this.tempFile = file; const url = URL.createObjectURL(file); const btnId = {user:'wc-avatar-btn', contact:'c-avatar-btn', 'user-mask':'um-avatar-btn'}[type]; const btn = document.getElementById(btnId); btn.innerHTML = ''; btn.style.backgroundImage = `url(${url})`; if(type === 'user') { const id = 'u_a_'+Date.now(); this.saveBlob(id, file).then(() => { this.data.avatarId = id; this.save(); this.switchTab('me'); }); } },
     toggleGroup(n) { if(this.data.collapsedGroups.includes(n)) this.data.collapsedGroups = this.data.collapsedGroups.filter(i=>i!==n); else this.data.collapsedGroups.push(n); this.save(); this.switchTab('contacts'); },
     openMaskPage() { document.getElementById('wc-sub-page').style.display='flex'; this.renderMaskList(); },
@@ -404,7 +496,7 @@ const WeChatApp = {
     delUserMask(id, e) { e.stopPropagation(); if(confirm('删除面具？')) { this.data.masks = this.data.masks.filter(i=>i.id!==id); this.save(); this.renderMaskList(); } },
     edit(f) { const v = prompt('修改', this.data[f]); if(v) { this.data[f] = v; this.save(); this.switchTab('me'); } },
     save() { localStorage.setItem('wechat_data', JSON.stringify(this.data)); },
-    open() { document.getElementById('wechat-app').style.display = 'flex'; this.switchTab('me'); },
+    open() { document.getElementById('wechat-app').style.display = 'flex'; this.switchTab('chat'); },
     close() { document.getElementById('wechat-app').style.display = 'none'; },
     bindMeEvents() { const btn = document.getElementById('wc-avatar-btn'); if(!btn) return; let t = null; btn.ontouchstart = () => t = setTimeout(() => document.getElementById('u-picker').click(), 600); btn.ontouchend = () => clearTimeout(t); }
 };
