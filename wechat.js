@@ -9,7 +9,10 @@ const WeChatApp = {
         contacts: [], 
         collapsedGroups: [],
         activeChats: [],
-        messages: {} // 新增：用于存储每个角色的聊天记录 { contactId: [ {role, content, timestamp}, ... ] }
+        messages: {}, // 新增：用于存储每个角色的聊天记录 { contactId: [ {role, content, timestamp}, ... ] }
+        favorites: [], // 新增：收藏
+        selectedChatGroup: '全部', // 聊天列表当前选中的分组
+        chatSearchQuery: ''        // 聊天列表搜索
     },
 
     tempFile: null,
@@ -48,7 +51,9 @@ const WeChatApp = {
         if(!Array.isArray(this.data.masks)) this.data.masks = [];
         if(!Array.isArray(this.data.contacts)) this.data.contacts = [];
         if(!Array.isArray(this.data.activeChats)) this.data.activeChats = [];
+        if(!Array.isArray(this.data.favorites)) this.data.favorites = [];
         if(!this.data.messages) this.data.messages = {};
+        if(!this.data.selectedChatGroup) this.data.selectedChatGroup = '全部';
     },
 
     async render() {
@@ -83,11 +88,26 @@ const WeChatApp = {
                 .wc-contact-item { background: #FFF; padding: 12px 20px; display: flex; align-items: center; gap: 15px; border-bottom: 1px solid #F9F9F9; }
                 .wc-c-avatar { width: 44px; height: 44px; border-radius: 12px; background: #F0F0F0; background-size: cover; background-position: center; flex-shrink: 0; }
 
-                .wc-chat-item { display: flex; align-items: center; padding: 15px 20px; background: #FFF; border-bottom: 1px solid #F9F9F9; cursor: pointer; }
-                .wc-chat-avatar { width: 50px; height: 50px; border-radius: 12px; background: #F0F0F0; background-size: cover; background-position: center; flex-shrink: 0; }
-                .wc-chat-info { flex: 1; margin-left: 15px; overflow: hidden; }
-                .wc-chat-name { font-size: 16px; color: #333; font-weight: 500; margin-bottom: 5px; }
+                /* 聊天页改版样式 */
+                .wc-chat-top-search { padding: 12px 18px 8px; }
+                .wc-chat-search-box { background: #FFF; height: 40px; border-radius: 10px; display: flex; align-items: center; padding: 0 12px; border: 1px solid #EAEAEA; }
+                .wc-chat-search-box input { border: none; background: transparent; flex: 1; height: 100%; outline: none; font-size: 14px; color: #333; }
+                .wc-chat-filter-row { display: flex; overflow-x: auto; padding: 6px 18px 14px; gap: 10px; scrollbar-width: none; }
+                .wc-chat-filter-row::-webkit-scrollbar { display: none; }
+                .wc-filter-pill { padding: 6px 15px; border-radius: 20px; background: #FFF; border: 1px solid #EEE; color: #666; font-size: 13px; white-space: nowrap; cursor: pointer; }
+                .wc-filter-pill.active { background: #1a1a1a; color: #FFF; border-color: #1a1a1a; }
+                .wc-chat-card-list { padding: 0 16px 30px; }
+                .wc-chat-card { display: flex; align-items: center; padding: 14px; background: #FFF; border-radius: 16px; margin-bottom: 12px; border: 1px solid #F2F2F2; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
+                .wc-chat-avatar { width: 48px; height: 48px; border-radius: 10px; background: #F0F0F0; background-size: cover; background-position: center; flex-shrink: 0; }
+                .wc-chat-info { flex: 1; margin-left: 12px; overflow: hidden; }
+                .wc-chat-name { font-size: 15px; color: #333; font-weight: 500; margin-bottom: 4px; }
                 .wc-chat-msg { font-size: 13px; color: #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+                /* 收藏项样式 */
+                .fav-item { background: #FFF; padding: 15px; border-radius: 15px; border: 1px solid #F2F2F2; margin-bottom: 10px; position: relative; }
+                .fav-item:active { background: #F5F5F5; }
+                .fav-date { font-size: 11px; color: #BBB; margin-bottom: 6px; }
+                .fav-text { font-size: 14px; color: #333; line-height: 1.5; word-wrap: break-word; }
 
                 .wc-tabbar { height: 85px; background: rgba(255,255,255,0.9); backdrop-filter: blur(20px); border-top: 1px solid #F0F0F0; display: flex; justify-content: space-around; align-items: center; padding-bottom: env(safe-area-inset-bottom); }
                 .wc-tab { display: flex; flex-direction: column; align-items: center; gap: 6px; color: #BBB; cursor: pointer; }
@@ -111,13 +131,14 @@ const WeChatApp = {
 
                 #wc-sub-page { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #F9F9F9; z-index: 10001; display: none; flex-direction: column; }
                 .mask-list { flex: 1; overflow-y: auto; padding: 20px; }
-                .mask-item { background: #FFF; padding: 15px; border-radius: 15px; display: flex; align-items: center; gap: 15px; margin-bottom: 10px; border: 1px solid #F2F2F2; }
+                .mask-item { background: #FFF; padding: 15px; border-radius: 15px; display: flex; align-items: center; gap: 15px; margin-bottom: 10px; border: 1px solid #F2F2F2; position: relative; }
                 .mask-item-avatar { width: 48px; height: 48px; border-radius: 50%; background: #EEE; background-size: cover; background-position: center; flex-shrink: 0; }
                 .mask-item-name { flex: 1; font-size: 16px; color: #333; font-weight: 500; }
-                .mask-item-del { color: #CCC; font-size: 24px; padding: 5px; cursor: pointer; }
+                .mask-item-del { color: #CCC; font-size: 24px; padding: 5px 12px; cursor: pointer; z-index: 10; }
 
-                #wc-context-menu { position: fixed; z-index: 10005; background: #FFF; border-radius: 12px; width: 120px; display: none; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.1); border: 1px solid #EEE; overflow: hidden; }
-                .context-item { padding: 12px; font-size: 14px; text-align: center; border-bottom: 0.5px solid #EEE; }
+                #wc-context-menu { position: fixed; z-index: 10005; background: #FFF; border-radius: 12px; width: 135px; display: none; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.1); border: 1px solid #EEE; overflow: hidden; }
+                .context-item { padding: 12px; font-size: 14px; text-align: center; border-bottom: 0.5px solid #EEE; color: #333; cursor: pointer; }
+                .context-item:active { background: #F5F5F5; }
             </style>
         `;
 
@@ -176,8 +197,8 @@ const WeChatApp = {
                 <div id="wc-sub-page">
                     <div class="sub-header">
                         <svg class="btn" onclick="WeChatApp.closeSubPage()" viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
-                        <div class="title">我的面具</div>
-                        <svg class="btn" onclick="WeChatApp.showUserModal()" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                        <div class="title" id="wc-sub-title">我的面具</div>
+                        <svg class="btn" id="wc-sub-add-btn" onclick="WeChatApp.showUserModal()" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
                     </div>
                     <div class="mask-list" id="mask-list-view"></div>
                 </div>
@@ -195,7 +216,8 @@ const WeChatApp = {
 
                 <div id="wc-context-menu">
                     <div class="context-item" id="ctx-edit" onclick="WeChatApp.handleCtxEdit()">编辑</div>
-                    <div class="context-item" style="color:red" onclick="WeChatApp.handleCtxDelete()">删除</div>
+                    <div class="context-item" id="ctx-clear" onclick="WeChatApp.handleCtxClear()">清除聊天记录</div>
+                    <div class="context-item" id="ctx-delete" style="color:red" onclick="WeChatApp.handleCtxDelete()">删除</div>
                 </div>
             </div>
             <input type="file" id="u-picker" style="display:none" accept="image/*">
@@ -222,7 +244,7 @@ const WeChatApp = {
                     <span>发起聊天</span>
                 </div>
                 <div class="wc-plus-item" onclick="alert('群聊功能开发中')">
-                    <svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5s-3 1.34-3 3 1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+                    <svg viewBox="0 0 24 24"><path d="M16 11c1.66 0 3-1.34 3-3s-1.34-3-3-3s-3,1.34-3,3S14.34,11,16,11z M7,11c1.66,0,3-1.34,3-3S8.66,5,7,5S4,6.34,4,8 S5.34,11,7,11z M7,13c-2.33,0-7,1.17-7,3.5V19h14v-2.5C14,14.17,9.33,13,7,13z M16,13c-0.29,0-0.62,0.02-0.97,0.05 c1.16,0.84,1.97,1.97,1.97,3.45V19h6v-2.5C23,14.17,18.33,13,16,13z"/></svg>
                     <span>创建群聊</span>
                 </div>
             `;
@@ -292,45 +314,77 @@ const WeChatApp = {
         else { view.innerHTML = `<div style="text-align:center;padding:100px;color:#CCC">开发中</div>`; }
     },
 
+    // --- 聊天页改版 UI 渲染 ---
     async renderChatPage() {
         if (!this.data.activeChats || this.data.activeChats.length === 0) {
             return `<div style="text-align:center;padding:120px 20px;color:#CCC;font-size:14px;">暂无聊天，点击右上角 + 发起聊天</div>`;
         }
-        let h = '';
+
+        // 提取所有活跃好友所属的分组，用于横向气泡过滤
+        const activeContacts = this.data.activeChats.map(id => this.data.contacts.find(c => c.id === id)).filter(i => i);
+        const uniqueGroups = ['全部', ...new Set(activeContacts.map(c => c.group || '其他'))];
+
+        let h = `
+            <div class="wc-chat-top-search">
+                <div class="wc-chat-search-box">
+                    <svg style="width:18px;fill:#BBB;margin-right:8px;" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                    <input type="text" id="chat-list-search" placeholder="搜索聊天记录" value="${this.data.chatSearchQuery || ''}" oninput="WeChatApp.handleChatSearch(this.value)">
+                </div>
+            </div>
+            <div class="wc-chat-filter-row">
+        `;
+
+        uniqueGroups.forEach(g => {
+            const isActive = this.data.selectedChatGroup === g;
+            h += `<div class="wc-filter-pill ${isActive ? 'active' : ''}" onclick="WeChatApp.filterChatByGroup('${g}')">${g}</div>`;
+        });
+        h += `</div><div class="wc-chat-card-list">`;
+
+        const query = (this.data.chatSearchQuery || '').toLowerCase();
         for (let id of this.data.activeChats) {
             const c = this.data.contacts.find(i => i.id === id);
             if (!c) continue;
-            
-            // 获取该好友的最后一条消息内容
+
             const msgs = this.data.messages[id] || [];
             const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1].content : '[暂无消息记录]';
 
-            h += `
-                <div class="wc-chat-item" onclick="ChatRoom.open('${c.id}')" ontouchstart="WeChatApp.startChatPress(event, '${c.id}')" ontouchend="WeChatApp.endCPress()">
-                    <div class="wc-chat-avatar" id="chat-av-${c.id}"></div>
-                    <div class="wc-chat-info">
-                        <div class="wc-chat-name">${c.name}</div>
-                        <div class="wc-chat-msg">${lastMsg}</div>
+            const groupMatch = this.data.selectedChatGroup === '全部' || (c.group || '其他') === this.data.selectedChatGroup;
+            const searchMatch = c.name.toLowerCase().includes(query) || lastMsg.toLowerCase().includes(query);
+
+            if (groupMatch && searchMatch) {
+                h += `
+                    <div class="wc-chat-card" onclick="ChatRoom.open('${c.id}')" ontouchstart="WeChatApp.startChatPress(event, '${c.id}')" ontouchend="WeChatApp.endCPress()">
+                        <div class="wc-chat-avatar" id="chat-av-${c.id}"></div>
+                        <div class="wc-chat-info">
+                            <div class="wc-chat-name">${c.name}</div>
+                            <div class="wc-chat-msg">${lastMsg}</div>
+                        </div>
                     </div>
-                </div>
-            `;
-            this.getBlob(c.avatarId).then(b => { 
-                const el=document.getElementById(`chat-av-${c.id}`); 
-                if(b && el) el.style.backgroundImage = `url(${URL.createObjectURL(b)})`; 
-            });
+                `;
+                this.getBlob(c.avatarId).then(b => { 
+                    const el=document.getElementById(`chat-av-${c.id}`); 
+                    if(b && el) el.style.backgroundImage = `url(${URL.createObjectURL(b)})`; 
+                });
+            }
         }
+        h += `</div>`;
         return h;
     },
+
+    handleChatSearch(val) { this.data.chatSearchQuery = val; this.switchTab('chat'); },
+    filterChatByGroup(g) { this.data.selectedChatGroup = g; this.switchTab('chat'); },
 
     startCPress(e, id) { 
         this.contextTarget = { type: 'contact', id }; 
         this.pressTimer = setTimeout(() => { 
             const m = document.getElementById('wc-context-menu'); 
             document.getElementById('ctx-edit').style.display = 'block';
+            document.getElementById('ctx-clear').style.display = 'none';
             const p = e.touches ? e.touches[0] : e; 
             m.style.display = 'flex'; 
-            m.style.left = Math.min(p.clientX, window.innerWidth-130)+'px'; 
+            m.style.left = Math.min(p.clientX, window.innerWidth-140)+'px'; 
             m.style.top = p.clientY+'px'; 
+            this.bindGlobalMenuHide();
         }, 600); 
     },
     startChatPress(e, id) { 
@@ -338,16 +392,30 @@ const WeChatApp = {
         this.pressTimer = setTimeout(() => { 
             const m = document.getElementById('wc-context-menu'); 
             document.getElementById('ctx-edit').style.display = 'none';
+            document.getElementById('ctx-clear').style.display = 'block';
             const p = e.touches ? e.touches[0] : e; 
             m.style.display = 'flex'; 
-            m.style.left = Math.min(p.clientX, window.innerWidth-130)+'px'; 
+            m.style.left = Math.min(p.clientX, window.innerWidth-140)+'px'; 
             m.style.top = p.clientY+'px'; 
+            this.bindGlobalMenuHide();
         }, 600); 
+    },
+    bindGlobalMenuHide() {
+        const m = document.getElementById('wc-context-menu');
+        const h = () => { m.style.display='none'; document.removeEventListener('click',h); };
+        setTimeout(()=>document.addEventListener('click', h), 10);
     },
     endCPress() { clearTimeout(this.pressTimer); },
     handleCtxEdit() {
         document.getElementById('wc-context-menu').style.display='none';
         if(this.contextTarget?.type === 'contact') this.showContactModal(this.contextTarget.id);
+    },
+    handleCtxClear() {
+        document.getElementById('wc-context-menu').style.display='none';
+        if(this.contextTarget?.type === 'chat' && confirm('清除与该角色的聊天记录？')) {
+            this.data.messages[this.contextTarget.id] = [];
+            this.save(); this.switchTab('chat');
+        }
     },
     handleCtxDelete() {
         document.getElementById('wc-context-menu').style.display='none';
@@ -443,7 +511,7 @@ const WeChatApp = {
         let h = `
             <div class="wc-search-bar"><input type="text" class="wc-search-input" id="c-search" placeholder="搜索好友" value="${this.searchQuery}"></div>
             <div class="wc-func-row"><div class="wc-func-icon" style="background:#FA9D3B"><svg style="width:22px;fill:#FFF" viewBox="0 0 24 24"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div><div class="wc-list-text" style="font-size:15px;">新的朋友</div></div>
-            <div class="wc-func-row"><div class="wc-func-icon" style="background:#07C160"><svg style="width:22px;fill:#FFF" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5s-3 1.34-3 3 1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg></div><div class="wc-list-text" style="font-size:15px;">群聊</div></div>
+            <div class="wc-func-row"><div class="wc-func-icon" style="background:#07C160"><svg style="width:22px;fill:#FFF" viewBox="0 0 24 24"><path d="M16 11c1.66,0,3-1.34,3-3s-1.34-3-3-3s-3,1.34-3,3S14.34,11,16,11z M7,11c1.66,0,3-1.34,3-3S8.66,5,7,5S4,6.34,4,8 S5.34,11,7,11z M7,13c-2.33,0-7,1.17-7,3.5V19h14v-2.5C14,14.17,9.33,13,7,13z M16,13c-0.29,0-0.62,0.02-0.97,0.05 c1.16,0.84,1.97,1.97,1.97,3.45V19h6v-2.5C23,14.17,18.33,13,16,13z"/></svg></div><div class="wc-list-text" style="font-size:15px;">群聊</div></div>
         `;
         const f = this.data.contacts.filter(c => c.name.toLowerCase().includes(this.searchQuery.toLowerCase()));
         const groups = {}; f.forEach(c => { const g = c.group || '其他'; if(!groups[g]) groups[g] = []; groups[g].push(c); });
@@ -461,7 +529,37 @@ const WeChatApp = {
 
     renderMePage(avatarUrl) {
         const bg = avatarUrl ? `style="background-image:url(${avatarUrl})"` : '';
-        return `<div class="wc-me-card"><div class="wc-avatar" id="wc-avatar-btn" ${bg}>${avatarUrl?'':'<svg viewBox="0 0 24 24" style="width:40px;fill:#CCC"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'}</div><div class="wc-info"><div class="wc-id" onclick="WeChatApp.edit('id')">${this.data.id}</div><div class="wc-bio" onclick="WeChatApp.edit('bio')">${this.data.bio}</div></div></div><div class="wc-list"><div class="wc-list-item" onclick="WeChatApp.openMaskPage()"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M21 5c-1.11 0-2.02.82-2.15 1.88a1.05 1.05 0 0 0-.14-.13C17.39 5.48 15.81 5 14.21 5c-1.6 0-3.18.48-4.51 1.75-.1.1-.19.23-.29.35C9.28 6.04 8.27 5 7 5a3 3 0 0 0-3 3c0 1.66 1.34 3 3 3 .35 0 .67-.06.97-.17.67.64 1.46 1.15 2.34 1.48C9.51 13.06 9 14.44 9 16c0 3.31 2.69 6 6 6s6-2.69 6-6c0-1.56-.51-2.94-1.31-3.69.88-.33 1.67-.84 2.34-1.48.3.11.62.17.97.17 1.66 0 3-1.34 3-3a3 3 0 0 0-3-3z"/></svg><div class="wc-list-text">面具</div></div><div class="wc-list-item"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2 .9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8z"/></svg><div class="wc-list-text">钱包</div></div><div class="wc-list-item"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z"/></svg><div class="wc-list-text">收藏</div></div><div class="wc-list-item"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm0 18c-4.41 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11z"/></svg><div class="wc-list-text">表情</div></div></div>`;
+        return `<div class="wc-me-card"><div class="wc-avatar" id="wc-avatar-btn" ${bg}>${avatarUrl?'':'<svg viewBox="0 0 24 24" style="width:40px;fill:#CCC"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'}</div><div class="wc-info"><div class="wc-id" onclick="WeChatApp.edit('id')">${this.data.id}</div><div class="wc-bio" onclick="WeChatApp.edit('bio')">${this.data.bio}</div></div></div><div class="wc-list"><div class="wc-list-item" onclick="WeChatApp.openMaskPage()"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M21 5c-1.11 0-2.02.82-2.15 1.88a1.05 1.05 0 0 0-.14-.13C17.39 5.48 15.81 5 14.21 5c-1.6 0-3.18.48-4.51 1.75-.1.1-.19.23-.29.35C9.28 6.04 8.27 5 7 5a3 3 0 0 0-3 3c0 1.66 1.34 3 3 3 .35 0 .67-.06.97-.17.67.64 1.46 1.15 2.34 1.48C9.51 13.06 9 14.44 9 16c0 3.31 2.69 6 6 6s6-2.69 6-6c0-1.56-.51-2.94-1.31-3.69.88-.33 1.67-.84 2.34-1.48.3.11.62.17.97.17 1.66 0 3-1.34 3-3a3 3 0 0 0-3-3z"/></svg><div class="wc-list-text">面具</div></div><div class="wc-list-item"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2 .9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8z"/></svg><div class="wc-list-text">钱包</div></div><div class="wc-list-item" onclick="WeChatApp.openFavPage()"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z"/></svg><div class="wc-list-text">收藏</div></div><div class="wc-list-item"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm0 18c-4.41 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11z"/></svg><div class="wc-list-text">表情</div></div></div>`;
+    },
+
+    // --- 收藏夹功能渲染 ---
+    openFavPage() {
+        const subTitle = document.getElementById('wc-sub-title');
+        subTitle.innerText = "我的收藏";
+        document.getElementById('wc-sub-add-btn').style.display = 'none'; 
+        document.getElementById('wc-sub-page').style.display = 'flex';
+        this.renderFavList();
+    },
+
+    renderFavList() {
+        const view = document.getElementById('mask-list-view'); 
+        if (!view) return;
+        if (this.data.favorites.length === 0) {
+            view.innerHTML = `<div style="text-align:center;padding:100px;color:#CCC">暂无收藏</div>`;
+            return;
+        }
+        let h = '';
+        this.data.favorites.sort((a,b) => b.favTime - a.favTime).forEach((fav, index) => {
+            const time = new Date(fav.favTime).toLocaleString();
+            h += `<div class="fav-item" ontouchstart="WeChatApp.startFavPress(event, ${index})" ontouchend="WeChatApp.endCPress()"><div class="fav-date">${fav.fromName} · ${time}</div><div class="fav-text">${fav.content}</div></div>`;
+        });
+        view.innerHTML = h;
+    },
+
+    startFavPress(e, index) {
+        this.pressTimer = setTimeout(() => {
+            if(confirm('删除该收藏？')) { this.data.favorites.splice(index, 1); this.save(); this.renderFavList(); }
+        }, 800);
     },
 
     async renderMaskList() {
@@ -472,7 +570,7 @@ const WeChatApp = {
             const row = document.createElement('div');
             row.className = 'mask-item';
             row.onclick = () => this.editUserMask(m.id);
-            row.innerHTML = `<div class="mask-item-avatar" id="mask-av-${m.id}"></div><div class="mask-item-name">${m.name}</div><div class="mask-item-del" onclick="WeChatApp.delUserMask('${m.id}', event)">×</div>`;
+            row.innerHTML = `<div class="mask-item-avatar" id="mask-av-${m.id}"></div><div class="mask-item-name">${m.name}</div><div class="mask-item-del" onclick="event.stopPropagation(); WeChatApp.delUserMask('${m.id}', event)">×</div>`;
             view.appendChild(row);
             this.getBlob(m.avatarId).then(blob => {
                 const el = document.getElementById(`mask-av-${m.id}`);
@@ -487,13 +585,13 @@ const WeChatApp = {
     async saveContact() { const name = document.getElementById('c-name').value; if(!name) return; const aid = this.tempFile ? 'c_a_'+Date.now() : (this.editingId?this.data.contacts.find(i=>i.id===this.editingId).avatarId:null); if(this.tempFile) await this.saveBlob(aid, this.tempFile); const p = { id: this.editingId||'c_'+Date.now(), name, bio: document.getElementById('c-bio').value, group: document.getElementById('c-group').value||'其他', userId: document.getElementById('c-user-bind').value, avatarId: aid }; if(this.editingId) this.data.contacts = this.data.contacts.map(i=>i.id===this.editingId?p:i); else this.data.contacts.push(p); this.save(); await this.switchTab('contacts'); this.hideContactModal(); },
     handleFile(e, type) { const file = e.target.files[0]; if(!file) return; this.tempFile = file; const url = URL.createObjectURL(file); const btnId = {user:'wc-avatar-btn', contact:'c-avatar-btn', 'user-mask':'um-avatar-btn'}[type]; const btn = document.getElementById(btnId); btn.innerHTML = ''; btn.style.backgroundImage = `url(${url})`; if(type === 'user') { const id = 'u_a_'+Date.now(); this.saveBlob(id, file).then(() => { this.data.avatarId = id; this.save(); this.switchTab('me'); }); } },
     toggleGroup(n) { if(this.data.collapsedGroups.includes(n)) this.data.collapsedGroups = this.data.collapsedGroups.filter(i=>i!==n); else this.data.collapsedGroups.push(n); this.save(); this.switchTab('contacts'); },
-    openMaskPage() { document.getElementById('wc-sub-page').style.display='flex'; this.renderMaskList(); },
+    openMaskPage() { document.getElementById('wc-sub-title').innerText = "我的面具"; document.getElementById('wc-sub-add-btn').style.display = 'block'; document.getElementById('wc-sub-page').style.display='flex'; this.renderMaskList(); },
     closeSubPage() { document.getElementById('wc-sub-page').style.display='none'; },
     showUserModal() { document.getElementById('user-mask-modal').style.display='flex'; },
     hideUserModal() { document.getElementById('user-mask-modal').style.display='none'; this.editingMaskId=null; this.tempFile=null; document.getElementById('um-avatar-btn').style.backgroundImage='none'; document.getElementById('um-name').value=''; document.getElementById('um-bio').value=''; },
     async editUserMask(id) { const m = this.data.masks.find(i=>i.id===id); if(!m) return; this.editingMaskId = id; this.showUserModal(); document.getElementById('um-name').value = m.name; document.getElementById('um-bio').value = m.bio; const b = await this.getBlob(m.avatarId); if(b) { document.getElementById('um-avatar-btn').innerHTML=''; document.getElementById('um-avatar-btn').style.backgroundImage=`url(${URL.createObjectURL(b)})`; } },
     async saveUserMask() { const name = document.getElementById('um-name').value; if(!name) return; const aid = this.tempFile ? 'um_a_'+Date.now() : (this.editingMaskId?this.data.masks.find(i=>i.id===this.editingMaskId).avatarId:null); if(this.tempFile) await this.saveBlob(aid, this.tempFile); const p = { id: this.editingMaskId||'mk_'+Date.now(), name, bio: document.getElementById('um-bio').value, avatarId: aid }; if(this.editingMaskId) this.data.masks = this.data.masks.map(i=>i.id===this.editingMaskId?p:i); else this.data.masks.push(p); this.save(); this.renderMaskList(); this.hideUserModal(); },
-    delUserMask(id, e) { e.stopPropagation(); if(confirm('删除面具？')) { this.data.masks = this.data.masks.filter(i=>i.id!==id); this.save(); this.renderMaskList(); } },
+    delUserMask(id, e) { if(confirm('删除面具？')) { this.data.masks = this.data.masks.filter(i=>i.id!==id); this.save(); this.renderMaskList(); } },
     edit(f) { const v = prompt('修改', this.data[f]); if(v) { this.data[f] = v; this.save(); this.switchTab('me'); } },
     save() { localStorage.setItem('wechat_data', JSON.stringify(this.data)); },
     open() { document.getElementById('wechat-app').style.display = 'flex'; this.switchTab('chat'); },
