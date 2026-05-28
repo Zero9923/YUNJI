@@ -1,4 +1,4 @@
-// wechat.js - 允纯机社交内核：面具列表显示修复 / 点击编辑 / 绝不动其他UI (完整恢复版)
+// wechat.js - 允纯机社交内核：终极修复版（完美解决PNG中文乱码 + 稳定UI）
 
 const WeChatApp = {
     db: null,
@@ -16,7 +16,6 @@ const WeChatApp = {
     activeContactId: null,
     searchQuery: '',
 
-    // 1. 初始化数据库
     async initDB() {
         return new Promise(res => {
             const req = indexedDB.open("YCJ_STORE", 1);
@@ -58,24 +57,29 @@ const WeChatApp = {
                 .wc-header .title, .sub-header .title { font-size: 16px; font-weight: 500; color: #333; flex: 1; text-align: center; letter-spacing: 1px; }
                 .wc-content { flex: 1; overflow-y: auto; position: relative; }
 
-                /* 个人中心 */
+                /* 顶部菜单 */
+                .wc-plus-menu { position: fixed; top: 90px; right: 15px; background: #4C4C4C; border-radius: 12px; display: none; flex-direction: column; z-index: 10006; min-width: 150px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+                .wc-plus-menu::after { content: ""; position: absolute; top: -8px; right: 12px; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 8px solid #4C4C4C; }
+                .wc-plus-item { color: #FFF; padding: 14px 18px; font-size: 15px; display: flex; align-items: center; gap: 12px; border-bottom: 0.5px solid #5a5a5a; cursor: pointer; }
+                .wc-plus-item:last-child { border-bottom: none; }
+                .wc-plus-item svg { width: 20px; height: 20px; fill: #FFF; }
+
+                /* 列表通用 */
                 .wc-me-card { background: #FFF; border-radius: 20px; padding: 25px; display: flex; align-items: flex-start; gap: 20px; border: 1px solid #F0F0F0; margin: 20px; }
                 .wc-avatar { width: 70px; height: 70px; border-radius: 50%; background: #F0F2F5; background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden; }
-                .wc-avatar svg { width: 40px; fill: #CCC; }
                 .wc-id { font-size: 18px; font-weight: 500; color: #1a1a1a; margin-bottom: 5px; cursor: pointer; }
                 .wc-bio { font-size: 13px; color: #999; line-height: 1.5; cursor: pointer; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
                 .wc-list { padding: 0 20px 30px; display: flex; flex-direction: column; gap: 10px; }
                 .wc-list-item { background: #FFF; padding: 16px 20px; border-radius: 15px; display: flex; align-items: center; gap: 15px; border: 1px solid #F2F2F2; cursor: pointer; }
                 .wc-list-icon { width: 22px; height: 22px; fill: #BBB; }
-
-                /* 通讯录 */
+                
                 .wc-search-bar { padding: 15px 20px; }
                 .wc-search-input { width: 100%; height: 38px; background: #EEE; border-radius: 12px; border: none; padding: 0 15px; font-size: 14px; outline: none; }
-                .wc-func-row { background: #FFF; padding: 12px 20px; display: flex; align-items: center; gap: 15px; border-bottom: 1px solid #F9F9F9; }
-                .wc-func-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+                .wc-func-row { background: #FFF; padding: 12px 20px; display: flex; align-items: center; gap: 15px; border-bottom: 1px solid #F9F9F9; cursor: pointer; }
+                .wc-func-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
                 .wc-group-header { padding: 8px 20px; background: #F2F2F2; font-size: 11px; color: #AAA; display: flex; justify-content: space-between; cursor: pointer; }
                 .wc-contact-item { background: #FFF; padding: 12px 20px; display: flex; align-items: center; gap: 15px; border-bottom: 1px solid #F9F9F9; }
-                .wc-c-avatar { width: 44px; height: 44px; border-radius: 12px; background: #F0F0F0; background-size: cover; background-position: center; }
+                .wc-c-avatar { width: 44px; height: 44px; border-radius: 12px; background: #F0F0F0; background-size: cover; background-position: center; flex-shrink: 0; }
 
                 /* 底部 Tab */
                 .wc-tabbar { height: 85px; background: rgba(255,255,255,0.9); backdrop-filter: blur(20px); border-top: 1px solid #F0F0F0; display: flex; justify-content: space-around; align-items: center; padding-bottom: env(safe-area-inset-bottom); }
@@ -84,36 +88,54 @@ const WeChatApp = {
                 .wc-tab svg { width: 24px; height: 24px; fill: currentColor; }
                 .wc-tab span { font-size: 10px; }
 
-                /* 面具子页 */
+                /* 弹窗核心 */
+                .wc-modal-mask { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10002; display: none; align-items: center; justify-content: center; }
+                .wc-modal { background: #FFF; width: 90%; max-height: 85vh; border-radius: 28px; padding: 25px; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+                .modal-scroll { flex: 1; overflow-y: auto; }
+                .modal-avatar-up { width: 85px; height: 85px; border-radius: 20px; background: #F8F8F8; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; background-size: cover; border: 1px solid #EEE; flex-shrink: 0; }
+                .modal-label { font-size: 12px; color: #AAA; margin: 10px 0 5px; display: block; }
+                .modal-input, .modal-select { width: 100%; border: none; border-bottom: 1px solid #F0F0F0; padding: 12px 0; outline: none; font-size: 15px; background: transparent; }
+                .modal-textarea { width: 100%; height: 180px; border: 1px solid #F0F0F0; border-radius: 12px; padding: 12px; margin-top: 5px; outline: none; font-size: 14px; resize: none; background: #FAFAFA; font-family: inherit; line-height: 1.6; }
+                .modal-btns { display: flex; gap: 10px; margin-top: 20px; }
+                .m-btn { flex: 1; padding: 15px; text-align: center; border-radius: 15px; font-size: 15px; font-weight: 500; cursor: pointer; }
+                
                 #wc-sub-page { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #F9F9F9; z-index: 10001; display: none; flex-direction: column; }
                 .mask-list { flex: 1; overflow-y: auto; padding: 20px; }
-                .mask-item { background: #FFF; padding: 15px; border-radius: 15px; display: flex; align-items: center; gap: 15px; margin-bottom: 10px; border: 1px solid #F2F2F2; cursor: pointer; }
-                .mask-item-avatar { width: 45px; height: 45px; border-radius: 50%; background: #EEE; background-size: cover; background-position: center; flex-shrink: 0; }
-                .mask-item-name { flex: 1; font-size: 15px; color: #333; }
-                .mask-item-del { color: #CCC; font-size: 22px; padding: 5px; cursor: pointer; line-height: 1; }
+                .mask-item { background: #FFF; padding: 15px; border-radius: 15px; display: flex; align-items: center; gap: 15px; margin-bottom: 10px; border: 1px solid #F2F2F2; }
+                .mask-item-avatar { width: 48px; height: 48px; border-radius: 50%; background: #EEE; background-size: cover; background-position: center; flex-shrink: 0; }
+                .mask-item-name { flex: 1; font-size: 16px; color: #333; font-weight: 500; }
+                .mask-item-del { color: #CCC; font-size: 24px; padding: 5px; cursor: pointer; }
 
-                /* 弹窗核心 */
-                .wc-modal-mask { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.3); z-index: 10002; display: none; align-items: center; justify-content: center; }
-                .wc-modal { background: #FFF; width: 85%; border-radius: 28px; padding: 30px 25px; display: flex; flex-direction: column; }
-                .modal-avatar-up { width: 85px; height: 85px; border-radius: 20px; background: #F5F5F5; margin: 0 auto 25px; display: flex; align-items: center; justify-content: center; background-size: cover; border: 1px solid #EEE; overflow: hidden; }
-                .modal-input, .modal-select { width: 100%; border: none; border-bottom: 1px solid #EEE; padding: 12px 0; margin-bottom: 15px; outline: none; font-size: 14px; border-radius: 0; background: transparent; -webkit-appearance: none; }
-                .modal-textarea { width: 100%; height: 80px; border: none; border-bottom: 1px solid #EEE; padding: 12px 0; margin-bottom: 15px; outline: none; font-size: 14px; resize: none; background: transparent; font-family: inherit; }
-                .modal-btns { display: flex; gap: 10px; }
-                .m-btn { flex: 1; padding: 14px; text-align: center; border-radius: 14px; font-size: 14px; cursor: pointer; }
-                
                 #wc-context-menu { position: fixed; z-index: 10005; background: #FFF; border-radius: 12px; width: 120px; display: none; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.1); border: 1px solid #EEE; overflow: hidden; }
                 .context-item { padding: 12px; font-size: 14px; text-align: center; border-bottom: 0.5px solid #EEE; }
             </style>
         `;
 
         const html = `
-            <div id="wc-busy" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.7);z-index:10008;display:none;align-items:center;justify-content:center;letter-spacing:2px;">WORKING...</div>
+            <div id="wc-busy" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.9);z-index:10008;display:none;align-items:center;justify-content:center;flex-direction:column;gap:15px;">
+                <div style="width:35px;height:35px;border:3px solid #F3F3F3;border-top:3px solid #1a1a1a;border-radius:50%;animation:wc-spin 1s linear infinite;"></div>
+                <div style="font-size:14px;color:#1a1a1a">正在解析角色卡...</div>
+            </div>
+            <style>@keyframes wc-spin { to { transform: rotate(360deg); } }</style>
+            
             <div id="wechat-app">
                 <div class="wc-header">
                     <svg class="btn" onclick="WeChatApp.close()" viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
                     <div class="title" id="wc-header-title">允纯机</div>
-                    <svg class="btn" id="wc-add-btn" onclick="WeChatApp.showContactModal()" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                    <svg class="btn" id="wc-add-btn" onclick="WeChatApp.togglePlusMenu(event)" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
                 </div>
+
+                <div id="wc-plus-menu" class="wc-plus-menu">
+                    <div class="wc-plus-item" onclick="WeChatApp.menuAddContact()">
+                        <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+                        <span>添加角色</span>
+                    </div>
+                    <div class="wc-plus-item" onclick="document.getElementById('import-picker').click()">
+                        <svg viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
+                        <span>导入角色卡</span>
+                    </div>
+                </div>
+
                 <div class="wc-content" id="wc-main-view"></div>
                 <div class="wc-tabbar">
                     <div class="wc-tab" onclick="WeChatApp.switchTab('chat')"><svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12l4 4V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg><span>聊天</span></div>
@@ -122,19 +144,27 @@ const WeChatApp = {
                     <div class="wc-tab" onclick="WeChatApp.switchTab('me')"><svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg><span>个人</span></div>
                 </div>
 
-                <!-- 好友弹窗 -->
+                <!-- 角色弹窗 -->
                 <div class="wc-modal-mask" id="contact-modal">
                     <div class="wc-modal">
-                        <div class="modal-avatar-up" id="c-avatar-btn" onclick="document.getElementById('c-picker').click()"><svg viewBox="0 0 24 24" style="width:30px;fill:#DDD"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div>
-                        <input type="text" id="c-name" class="modal-input" placeholder="Char名称">
-                        <input type="text" id="c-bio" class="modal-input" placeholder="Char人设">
-                        <input type="text" id="c-group" class="modal-input" placeholder="分组">
-                        <select id="c-user-bind" class="modal-select"></select>
-                        <div class="modal-btns"><div class="m-btn" style="background:#F5F5F5;color:#999" onclick="WeChatApp.hideContactModal()">取消</div><div class="m-btn" style="background:#1a1a1a;color:#FFF" onclick="WeChatApp.saveContact()">确定</div></div>
+                        <div class="modal-scroll">
+                            <div class="modal-avatar-up" id="c-avatar-btn" onclick="document.getElementById('c-picker').click()"><svg viewBox="0 0 24 24" style="width:36px;fill:#DDD"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div>
+                            <span class="modal-label">名称</span>
+                            <input type="text" id="c-name" class="modal-input" placeholder="输入角色名">
+                            <span class="modal-label">分组</span>
+                            <input type="text" id="c-group" class="modal-input" placeholder="如：导入、好友">
+                            <span class="modal-label">绑定 User 面具</span>
+                            <select id="c-user-bind" class="modal-select"></select>
+                            <span class="modal-label">人设设定</span>
+                            <textarea id="c-bio" class="modal-textarea" placeholder="输入详细的角色设定..."></textarea>
+                        </div>
+                        <div class="modal-btns">
+                            <div class="m-btn" style="background:#F5F5F5;color:#999" onclick="WeChatApp.hideContactModal()">取消</div>
+                            <div class="m-btn" style="background:#1a1a1a;color:#FFF" onclick="WeChatApp.saveContact()">保存角色</div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- 面具子页 -->
                 <div id="wc-sub-page">
                     <div class="sub-header">
                         <svg class="btn" onclick="WeChatApp.closeSubPage()" viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
@@ -144,12 +174,13 @@ const WeChatApp = {
                     <div class="mask-list" id="mask-list-view"></div>
                 </div>
 
-                <!-- 面具弹窗 -->
                 <div class="wc-modal-mask" id="user-mask-modal">
                     <div class="wc-modal">
-                        <div class="modal-avatar-up" id="um-avatar-btn" onclick="document.getElementById('um-picker').click()"><svg viewBox="0 0 24 24" style="width:30px;fill:#DDD"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div>
-                        <input type="text" id="um-name" class="modal-input" placeholder="面具名称">
-                        <textarea id="um-bio" class="modal-textarea" placeholder="设定 (不限行数)"></textarea>
+                        <div class="modal-scroll">
+                            <div class="modal-avatar-up" id="um-avatar-btn" onclick="document.getElementById('um-picker').click()"><svg viewBox="0 0 24 24" style="width:36px;fill:#DDD"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div>
+                            <input type="text" id="um-name" class="modal-input" placeholder="面具名称">
+                            <textarea id="um-bio" class="modal-textarea" placeholder="输入面具背景设定..."></textarea>
+                        </div>
                         <div class="modal-btns"><div class="m-btn" style="background:#F5F5F5;color:#999" onclick="WeChatApp.hideUserModal()">取消</div><div class="m-btn" style="background:#1a1a1a;color:#FFF" onclick="WeChatApp.saveUserMask()">确定</div></div>
                     </div>
                 </div>
@@ -159,6 +190,7 @@ const WeChatApp = {
             <input type="file" id="u-picker" style="display:none" accept="image/*">
             <input type="file" id="c-picker" style="display:none" accept="image/*">
             <input type="file" id="um-picker" style="display:none" accept="image/*">
+            <input type="file" id="import-picker" style="display:none" accept=".json,.png">
         `;
 
         document.body.insertAdjacentHTML('beforeend', style + html);
@@ -166,24 +198,171 @@ const WeChatApp = {
         document.getElementById('u-picker').onchange = e => this.handleFile(e, 'user');
         document.getElementById('c-picker').onchange = e => this.handleFile(e, 'contact');
         document.getElementById('um-picker').onchange = e => this.handleFile(e, 'user-mask');
+        document.getElementById('import-picker').onchange = e => this.handleImport(e);
     },
 
+    // --- 核心修复：完美的 PNG 中文解析 ---
+    togglePlusMenu(e) {
+        e.stopPropagation();
+        const menu = document.getElementById('wc-plus-menu');
+        menu.style.display = (menu.style.display === 'flex') ? 'none' : 'flex';
+        if (menu.style.display === 'flex') {
+            const h = () => { menu.style.display='none'; document.removeEventListener('click',h); };
+            setTimeout(()=>document.addEventListener('click', h), 10);
+        }
+    },
+    menuAddContact() { document.getElementById('wc-plus-menu').style.display='none'; this.showContactModal(); },
+
+    async handleImport(e) {
+        const file = e.target.files[0];
+        if(!file) return;
+        document.getElementById('wc-busy').style.display = 'flex';
+        try {
+            let data = null;
+            if (file.type === "application/json" || file.name.endsWith('.json')) {
+                data = JSON.parse(await file.text());
+            } else if (file.type === "image/png") {
+                data = await this.extractPngData(file);
+            }
+            if (data) await this.saveImportedChar(data, file.type === "image/png" ? file : null);
+        } catch (err) {
+            alert("导入失败：无法识别此卡片的数据格式");
+            console.error(err);
+        }
+        document.getElementById('wc-busy').style.display = 'none';
+        e.target.value = '';
+    },
+
+    // 解决乱码的核心：将 Base64 还原为真正的 UTF-8 字符串
+    decodeBase64UTF8(base64Str) {
+        const binaryString = atob(base64Str);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return new TextDecoder('utf-8').decode(bytes);
+    },
+
+    async extractPngData(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const buffer = new Uint8Array(reader.result);
+                if (buffer[0] !== 0x89 || buffer[1] !== 0x50) return reject("无效PNG");
+                
+                let offset = 8;
+                while (offset < buffer.length) {
+                    const len = (buffer[offset] << 24) | (buffer[offset+1] << 16) | (buffer[offset+2] << 8) | buffer[offset+3];
+                    const type = String.fromCharCode(buffer[offset+4], buffer[offset+5], buffer[offset+6], buffer[offset+7]);
+                    
+                    if (type === 'tEXt' || type === 'iTXt') {
+                        const chunk = buffer.slice(offset + 8, offset + 8 + len);
+                        const text = new TextDecoder('utf-8').decode(chunk);
+                        
+                        if (text.includes('chara')) {
+                            const raw = text.substring(text.indexOf('chara') + 5);
+                            
+                            // 寻找 Base64 的开头 (eyJ 是 {" 的 Base64 编码)
+                            const b64Idx = raw.indexOf('eyJ');
+                            // 寻找纯 JSON 的开头
+                            const jsonIdx = raw.indexOf('{');
+                            
+                            try {
+                                if (b64Idx !== -1 && (jsonIdx === -1 || b64Idx < jsonIdx)) {
+                                    // 提取纯净的 Base64 字符串
+                                    const b64 = raw.substring(b64Idx).replace(/[^a-zA-Z0-9+/=]/g, '');
+                                    const decodedStr = this.decodeBase64UTF8(b64);
+                                    resolve(JSON.parse(decodedStr));
+                                    return;
+                                } else if (jsonIdx !== -1) {
+                                    // 纯 JSON 格式
+                                    const jsonStr = raw.substring(jsonIdx, raw.lastIndexOf('}') + 1);
+                                    resolve(JSON.parse(jsonStr));
+                                    return;
+                                }
+                            } catch(e) {
+                                console.warn("当前数据块解析失败，继续尝试...", e);
+                            }
+                        }
+                    }
+                    offset += len + 12;
+                }
+                
+                // 暴力扫描模式：如果上面的标准解析失败，直接在整个文件里找 Base64 编码的 JSON
+                try {
+                    const fullText = new TextDecoder('utf-8').decode(buffer);
+                    const matches = fullText.match(/eyJ[a-zA-Z0-9+/=]+/g);
+                    if (matches) {
+                        matches.sort((a,b) => b.length - a.length); // 找最长的那个，通常就是数据
+                        for (let b64 of matches) {
+                            try {
+                                const parsed = JSON.parse(this.decodeBase64UTF8(b64));
+                                if (parsed.name || parsed.data) {
+                                    resolve(parsed);
+                                    return;
+                                }
+                            } catch(e) {}
+                        }
+                    }
+                } catch(e) {}
+
+                reject("未找到角色数据");
+            };
+            reader.readAsArrayBuffer(file);
+        });
+    },
+
+    async saveImportedChar(raw, avatarBlob) {
+        const char = raw.data || raw; 
+        const name = char.name || char.display_name || "未命名";
+        const bio = [char.description, char.personality, char.mes_example].filter(i=>i).join('\n\n');
+        let aid = null;
+        if (avatarBlob) { aid = 'c_a_' + Date.now(); await this.saveBlob(aid, avatarBlob); }
+        const p = { id: 'c_'+Date.now(), name, bio, group: '导入', userId: '', avatarId: aid };
+        this.data.contacts.push(p);
+        this.save();
+        if(this.data.currentTab === 'contacts') this.switchTab('contacts');
+        alert(`成功导入: ${name}`);
+    },
+
+    // --- 恢复的功能行 ---
+    async renderContactsPage() {
+        let h = `
+            <div class="wc-search-bar"><input type="text" class="wc-search-input" id="c-search" placeholder="搜索好友" value="${this.searchQuery}"></div>
+            <div class="wc-func-row">
+                <div class="wc-func-icon" style="background:#FA9D3B"><svg style="width:22px;fill:#FFF" viewBox="0 0 24 24"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div>
+                <div class="wc-list-text" style="font-size:15px;">新的朋友</div>
+            </div>
+            <div class="wc-func-row">
+                <div class="wc-func-icon" style="background:#07C160"><svg style="width:22px;fill:#FFF" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5s-3 1.34-3 3 1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg></div>
+                <div class="wc-list-text" style="font-size:15px;">群聊</div>
+            </div>
+        `;
+        const f = this.data.contacts.filter(c => c.name.toLowerCase().includes(this.searchQuery.toLowerCase()));
+        const groups = {}; f.forEach(c => { const g = c.group || '其他'; if(!groups[g]) groups[g] = []; groups[g].push(c); });
+        for(let g in groups) {
+            const isCol = this.data.collapsedGroups.includes(g); h += `<div class="wc-group-header" onclick="WeChatApp.toggleGroup('${g}')"><span>${g}</span><span>${isCol?'展开':'收起'}</span></div>`;
+            if(!isCol) { 
+                for(let c of groups[g]) { 
+                    h += `<div class="wc-contact-item" id="c-row-${c.id}" ontouchstart="WeChatApp.startCPress(event, '${c.id}')" ontouchend="WeChatApp.endCPress()"><div class="wc-c-avatar" id="c-av-${c.id}"></div><div class="wc-c-name" style="font-size:15px;">${c.name}</div></div>`; 
+                    this.getBlob(c.avatarId).then(b => { const el=document.getElementById(`c-av-${c.id}`); if(b && el) el.style.backgroundImage = `url(${URL.createObjectURL(b)})`; }); 
+                } 
+            }
+        }
+        return h;
+    },
+
+    // --- 其他渲染逻辑 ---
     async renderMaskList() {
         const view = document.getElementById('mask-list-view');
         if(!view) return;
         view.innerHTML = this.data.masks.length ? '' : `<div style="text-align:center;padding:50px;color:#DDD;font-size:12px;">暂无面具</div>`;
-        
         for(let m of this.data.masks) {
             const row = document.createElement('div');
             row.className = 'mask-item';
             row.onclick = () => this.editUserMask(m.id);
-            row.innerHTML = `
-                <div class="mask-item-avatar" id="mask-av-${m.id}"></div>
-                <div class="mask-item-name">${m.name}</div>
-                <div class="mask-item-del" onclick="WeChatApp.delUserMask('${m.id}', event)">×</div>
-            `;
+            row.innerHTML = `<div class="mask-item-avatar" id="mask-av-${m.id}"></div><div class="mask-item-name">${m.name}</div><div class="mask-item-del" onclick="WeChatApp.delUserMask('${m.id}', event)">×</div>`;
             view.appendChild(row);
-
             this.getBlob(m.avatarId).then(blob => {
                 const el = document.getElementById(`mask-av-${m.id}`);
                 if(blob && el) el.style.backgroundImage = `url(${URL.createObjectURL(blob)})`;
@@ -205,30 +384,21 @@ const WeChatApp = {
         const bg = avatarUrl ? `style="background-image:url(${avatarUrl})"` : '';
         return `<div class="wc-me-card"><div class="wc-avatar" id="wc-avatar-btn" ${bg}>${avatarUrl?'':'<svg viewBox="0 0 24 24" style="width:40px;fill:#CCC"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'}</div><div class="wc-info"><div class="wc-id" onclick="WeChatApp.edit('id')">${this.data.id}</div><div class="wc-bio" onclick="WeChatApp.edit('bio')">${this.data.bio}</div></div></div><div class="wc-list"><div class="wc-list-item" onclick="WeChatApp.openMaskPage()"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M21 5c-1.11 0-2.02.82-2.15 1.88a1.05 1.05 0 0 0-.14-.13C17.39 5.48 15.81 5 14.21 5c-1.6 0-3.18.48-4.51 1.75-.1.1-.19.23-.29.35C9.28 6.04 8.27 5 7 5a3 3 0 0 0-3 3c0 1.66 1.34 3 3 3 .35 0 .67-.06.97-.17.67.64 1.46 1.15 2.34 1.48C9.51 13.06 9 14.44 9 16c0 3.31 2.69 6 6 6s6-2.69 6-6c0-1.56-.51-2.94-1.31-3.69.88-.33 1.67-.84 2.34-1.48.3.11.62.17.97.17 1.66 0 3-1.34 3-3a3 3 0 0 0-3-3z"/></svg><div class="wc-list-text">面具</div></div><div class="wc-list-item"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2 .9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8z"/></svg><div class="wc-list-text">钱包</div></div><div class="wc-list-item"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z"/></svg><div class="wc-list-text">收藏</div></div><div class="wc-list-item"><svg class="wc-list-icon" viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm0 18c-4.41 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11z"/></svg><div class="wc-list-text">表情</div></div></div>`;
     },
-    async renderContactsPage() {
-        let h = `<div class="wc-search-bar"><input type="text" class="wc-search-input" id="c-search" placeholder="搜索好友" value="${this.searchQuery}"></div><div class="wc-func-row"><div class="wc-func-icon" style="background:#D1C1B7"><svg style="width:20px;fill:#FFF" viewBox="0 0 24 24"><path d="M15 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm-9-2V7H4v3H1v2h3v3h2v-3h3v-2H6zm9 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div><div class="wc-list-text">新的朋友</div></div><div class="wc-func-row"><div class="wc-func-icon" style="background:#B7C1D1"><svg style="width:20px;fill:#FFF" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5s-3 1.34-3 3 1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg></div><div class="wc-list-text">群聊</div></div>`;
-        const f = this.data.contacts.filter(c => c.name.toLowerCase().includes(this.searchQuery.toLowerCase()));
-        const groups = {}; f.forEach(c => { const g = c.group || '其他'; if(!groups[g]) groups[g] = []; groups[g].push(c); });
-        for(let g in groups) {
-            const isCol = this.data.collapsedGroups.includes(g); h += `<div class="wc-group-header" onclick="WeChatApp.toggleGroup('${g}')"><span>${g}</span><span>${isCol?'展开':'收起'}</span></div>`;
-            if(!isCol) { for(let c of groups[g]) { h += `<div class="wc-contact-item" id="c-row-${c.id}" ontouchstart="WeChatApp.startCPress(event, '${c.id}')" ontouchend="WeChatApp.endCPress()"><div class="wc-c-avatar" id="c-av-${c.id}"></div><div class="wc-c-name">${c.name}</div></div>`; this.getBlob(c.avatarId).then(b => { const el=document.getElementById(`c-av-${c.id}`); if(b && el) el.style.backgroundImage = `url(${URL.createObjectURL(b)})`; }); } }
-        }
-        return h;
-    },
+
     bindSearchEvent() { const i = document.getElementById('c-search'); if(i) i.oninput = e => { this.searchQuery = e.target.value; this.switchTab('contacts'); }; },
-    showContactModal(id = null) { document.getElementById('contact-modal').style.display='flex'; const s = document.getElementById('c-user-bind'); s.innerHTML = '<option value="">绑定User面具</option>' + this.data.masks.map(m=>`<option value="${m.id}">${m.name}</option>`).join(''); if(id) { const c = this.data.contacts.find(i=>i.id===id); this.editingId = id; document.getElementById('c-name').value = c.name; document.getElementById('c-bio').value = c.bio; document.getElementById('c-group').value = c.group; s.value = c.userId || ''; } },
-    hideContactModal() { document.getElementById('contact-modal').style.display='none'; this.editingId=null; this.tempFile=null; document.getElementById('c-avatar-btn').style.backgroundImage='none'; ['c-name','c-bio','c-group'].forEach(k=>document.getElementById(k).value=''); },
+    showContactModal(id = null) { document.getElementById('contact-modal').style.display='flex'; const s = document.getElementById('c-user-bind'); s.innerHTML = '<option value="">绑定User面具</option>' + this.data.masks.map(m=>`<option value="${m.id}">${m.name}</option>`).join(''); if(id) { const c = this.data.contacts.find(i=>i.id===id); this.editingId = id; document.getElementById('c-name').value = c.name; document.getElementById('c-bio').value = c.bio; document.getElementById('c-group').value = c.group; s.value = c.userId || ''; this.getBlob(c.avatarId).then(b => { if(b) { const btn = document.getElementById('c-avatar-btn'); btn.innerHTML=''; btn.style.backgroundImage=`url(${URL.createObjectURL(b)})`; } }); } },
+    hideContactModal() { document.getElementById('contact-modal').style.display='none'; this.editingId=null; this.tempFile=null; document.getElementById('c-avatar-btn').style.backgroundImage='none'; document.getElementById('c-avatar-btn').innerHTML='<svg viewBox="0 0 24 24" style="width:36px;fill:#DDD"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'; ['c-name','c-bio','c-group'].forEach(k=>document.getElementById(k).value=''); },
     async saveContact() { const name = document.getElementById('c-name').value; if(!name) return; const aid = this.tempFile ? 'c_a_'+Date.now() : (this.editingId?this.data.contacts.find(i=>i.id===this.editingId).avatarId:null); if(this.tempFile) await this.saveBlob(aid, this.tempFile); const p = { id: this.editingId||'c_'+Date.now(), name, bio: document.getElementById('c-bio').value, group: document.getElementById('c-group').value||'其他', userId: document.getElementById('c-user-bind').value, avatarId: aid }; if(this.editingId) this.data.contacts = this.data.contacts.map(i=>i.id===this.editingId?p:i); else this.data.contacts.push(p); this.save(); await this.switchTab('contacts'); this.hideContactModal(); },
-    startCPress(e, id) { this.activeContactId = id; this.pressTimer = setTimeout(() => { const m = document.getElementById('wc-context-menu'); const p = e.touches[0]; m.style.display = 'flex'; m.style.left = Math.min(p.clientX, window.innerWidth-130)+'px'; m.style.top = p.clientY+'px'; }, 600); },
+    startCPress(e, id) { this.activeContactId = id; this.pressTimer = setTimeout(() => { const m = document.getElementById('wc-context-menu'); const p = e.touches ? e.touches[0] : e; m.style.display = 'flex'; m.style.left = Math.min(p.clientX, window.innerWidth-130)+'px'; m.style.top = p.clientY+'px'; }, 600); },
     endCPress() { clearTimeout(this.pressTimer); },
     editActiveContact() { document.getElementById('wc-context-menu').style.display='none'; this.showContactModal(this.activeContactId); },
-    deleteActiveContact() { if(confirm('删除？')) { this.data.contacts = this.data.contacts.filter(i=>i.id!==this.activeContactId); this.save(); this.switchTab('contacts'); } document.getElementById('wc-context-menu').style.display='none'; },
+    deleteActiveContact() { if(confirm('删除好友？')) { this.data.contacts = this.data.contacts.filter(i=>i.id!==this.activeContactId); this.save(); this.switchTab('contacts'); } document.getElementById('wc-context-menu').style.display='none'; },
     handleFile(e, type) { const file = e.target.files[0]; if(!file) return; this.tempFile = file; const url = URL.createObjectURL(file); const btnId = {user:'wc-avatar-btn', contact:'c-avatar-btn', 'user-mask':'um-avatar-btn'}[type]; const btn = document.getElementById(btnId); btn.innerHTML = ''; btn.style.backgroundImage = `url(${url})`; if(type === 'user') { const id = 'u_a_'+Date.now(); this.saveBlob(id, file).then(() => { this.data.avatarId = id; this.save(); this.switchTab('me'); }); } },
     toggleGroup(n) { if(this.data.collapsedGroups.includes(n)) this.data.collapsedGroups = this.data.collapsedGroups.filter(i=>i!==n); else this.data.collapsedGroups.push(n); this.save(); this.switchTab('contacts'); },
     openMaskPage() { document.getElementById('wc-sub-page').style.display='flex'; this.renderMaskList(); },
     closeSubPage() { document.getElementById('wc-sub-page').style.display='none'; },
     showUserModal() { document.getElementById('user-mask-modal').style.display='flex'; },
-    hideUserModal() { document.getElementById('user-mask-modal').style.display='none'; this.editingMaskId=null; this.tempFile=null; document.getElementById('um-avatar-btn').style.backgroundImage='none'; document.getElementById('um-avatar-btn').innerHTML='<svg viewBox="0 0 24 24" style="width:30px;fill:#DDD"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'; document.getElementById('um-name').value=''; document.getElementById('um-bio').value=''; },
+    hideUserModal() { document.getElementById('user-mask-modal').style.display='none'; this.editingMaskId=null; this.tempFile=null; document.getElementById('um-avatar-btn').style.backgroundImage='none'; document.getElementById('um-name').value=''; document.getElementById('um-bio').value=''; },
     async editUserMask(id) { const m = this.data.masks.find(i=>i.id===id); if(!m) return; this.editingMaskId = id; this.showUserModal(); document.getElementById('um-name').value = m.name; document.getElementById('um-bio').value = m.bio; const b = await this.getBlob(m.avatarId); if(b) { document.getElementById('um-avatar-btn').innerHTML=''; document.getElementById('um-avatar-btn').style.backgroundImage=`url(${URL.createObjectURL(b)})`; } },
     async saveUserMask() { const name = document.getElementById('um-name').value; if(!name) return; const aid = this.tempFile ? 'um_a_'+Date.now() : (this.editingMaskId?this.data.masks.find(i=>i.id===this.editingMaskId).avatarId:null); if(this.tempFile) await this.saveBlob(aid, this.tempFile); const p = { id: this.editingMaskId||'mk_'+Date.now(), name, bio: document.getElementById('um-bio').value, avatarId: aid }; if(this.editingMaskId) this.data.masks = this.data.masks.map(i=>i.id===this.editingMaskId?p:i); else this.data.masks.push(p); this.save(); this.renderMaskList(); this.hideUserModal(); },
     delUserMask(id, e) { e.stopPropagation(); if(confirm('删除面具？')) { this.data.masks = this.data.masks.filter(i=>i.id!==id); this.save(); this.renderMaskList(); } },
